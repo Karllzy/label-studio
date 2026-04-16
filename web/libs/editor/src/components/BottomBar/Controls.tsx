@@ -17,6 +17,7 @@ import { FF_REVIEWER_FLOW, FF_FIT_1304_STRICT_OVERLAP, isFF } from "../../utils/
 import { isDefined, toArray } from "../../utils/utilities";
 import {
   AcceptButton,
+  AdoptButton,
   ButtonTooltip,
   controlsInjector,
   RejectButtonDefinition,
@@ -43,10 +44,10 @@ type ControlButtonProps = {
   onClick: (e: React.MouseEvent) => void;
 };
 
-export const EMPTY_SUBMIT_TOOLTIP = "Empty annotations denied in this project";
-export const INCOMPLETE_SUBMIT_TOOLTIP = "Complete all regions before submitting";
-export const INCOMPLETE_UPDATE_TOOLTIP = "Complete all regions before updating";
-export const INCOMPLETE_ACCEPT_TOOLTIP = "Complete all regions before accepting";
+export const EMPTY_SUBMIT_TOOLTIP = "本项目不允许提交空标注";
+export const INCOMPLETE_SUBMIT_TOOLTIP = "请先完成所有区域再提交";
+export const INCOMPLETE_UPDATE_TOOLTIP = "请先完成所有区域再更新";
+export const INCOMPLETE_ACCEPT_TOOLTIP = "请先完成所有区域再通过";
 
 /**
  * Custom action button component, rendering buttons from store.customButtons
@@ -71,7 +72,8 @@ const ControlButton = observer(({ button, disabled, onClick, variant, look }: Co
 
 export const Controls = controlsInjector<{ annotation: MSTAnnotation }>(
   observer(({ store, history, annotation }) => {
-    const isReview = store.hasInterface("review") || annotation.canBeReviewed;
+    const isAdoptMode = store.hasInterface("review-adopt");
+    const isReview = store.hasInterface("review") || store.hasInterface("review-approve");
     const isNotQuickView = store.hasInterface("topbar:prevnext");
     const historySelected = isDefined(store.annotationStore.selectedHistory);
     const { userGenerate, sentUserGenerate, versions, results, editable: annotationEditable } = annotation;
@@ -172,7 +174,7 @@ export const Controls = controlsInjector<{ annotation: MSTAnnotation }>(
           const selected = store.annotationStore?.selected;
 
           if (store.hasInterface("comments:reject")) {
-            handleActionWithComments(e, action, "Please enter a comment before rejecting");
+            handleActionWithComments(e, action, "驳回前请先填写评论");
           } else {
             selected?.submissionInProgress();
             await store.commentStore.commentFormSubmit();
@@ -186,14 +188,18 @@ export const Controls = controlsInjector<{ annotation: MSTAnnotation }>(
     } else if (annotation.skipped) {
       buttons.push(
         <div className={cn("controls").elem("skipped-info").toClassName()} key="skipped">
-          <IconBan /> Was skipped
+          <IconBan /> 已跳过
         </div>,
       );
       buttons.push(<UnskipButton key="unskip" disabled={disabled} store={store} />);
     } else {
+      if (isAdoptMode) {
+        buttons.push(<AdoptButton key="review-adopt" disabled={disabled} store={store} />);
+      }
+
       if (store.hasInterface("skip")) {
         const onSkipWithComment = (e: React.MouseEvent, action: () => any) => {
-          handleActionWithComments(e, action, "Please enter a comment before skipping");
+          handleActionWithComments(e, action, "跳过前请先填写评论");
         };
 
         buttons.push(<SkipButton key="skip" disabled={disabled} store={store} onSkipWithComment={onSkipWithComment} />);
@@ -234,7 +240,7 @@ export const Controls = controlsInjector<{ annotation: MSTAnnotation }>(
               }}
               data-testid={`bottombar-${isUpdate ? "update" : "submit"}-and-exit-button`}
             >
-              {`${isUpdate ? "Update" : "Submit"} and exit`}
+              {`${isUpdate ? "更新" : "提交"}并退出`}
             </Button>
           </div>
         );
@@ -247,14 +253,14 @@ export const Controls = controlsInjector<{ annotation: MSTAnnotation }>(
             ? store.overlapReachedMessage
             : submitDisabled
               ? EMPTY_SUBMIT_TOOLTIP
-              : "Save results: [ Ctrl+Enter ]";
+              : "保存结果 [ Ctrl+Enter ]";
 
         buttons.push(
           <ButtonTooltip key="submit" title={title} className="whitespace-nowrap max-w-none">
             <div className={cn("controls").elem("tooltip-wrapper").toClassName()}>
               <ButtonGroup>
                 <Button
-                  aria-label="Submit current annotation"
+                  aria-label="提交当前标注"
                   name="submit"
                   className="w-[150px]"
                   disabled={isDisabled}
@@ -268,7 +274,7 @@ export const Controls = controlsInjector<{ annotation: MSTAnnotation }>(
                   }}
                   data-testid="bottombar-submit-button"
                 >
-                  Submit
+                  提交
                 </Button>
                 {useExitOption ? (
                   <Dropdown.Trigger
@@ -279,11 +285,7 @@ export const Controls = controlsInjector<{ annotation: MSTAnnotation }>(
                       </div>
                     }
                   >
-                    <Button
-                      disabled={isDisabled}
-                      aria-label="Submit annotation"
-                      data-testid="bottombar-submit-dropdown"
-                    >
+                    <Button disabled={isDisabled} aria-label="提交标注" data-testid="bottombar-submit-dropdown">
                       <IconChevronDown />
                     </Button>
                   </Dropdown.Trigger>
@@ -302,14 +304,14 @@ export const Controls = controlsInjector<{ annotation: MSTAnnotation }>(
           : overlapDisabled
             ? store.overlapReachedMessage
             : noChanges
-              ? "No changes were made"
-              : "Update this task: [ Ctrl+Enter ]";
+              ? "未做任何修改"
+              : "更新任务 [ Ctrl+Enter ]";
         const button = (
           <ButtonTooltip key="update" title={updateTitle} className="whitespace-nowrap max-w-none">
             <div className={cn("controls").elem("tooltip-wrapper").toClassName()}>
               <ButtonGroup>
                 <Button
-                  aria-label="submit"
+                  aria-label="提交"
                   name="submit"
                   className="w-[150px]"
                   disabled={isUpdateDisabled}
@@ -323,18 +325,14 @@ export const Controls = controlsInjector<{ annotation: MSTAnnotation }>(
                   }}
                   data-testid="bottombar-update-button"
                 >
-                  {isUpdate ? "Update" : "Submit"}
+                  {isUpdate ? "更新" : "提交"}
                 </Button>
                 {useExitOption ? (
                   <Dropdown.Trigger
                     alignment="top-right"
                     content={<SubmitOption onClickMethod={store.updateAnnotation} isUpdate={isUpdate} />}
                   >
-                    <Button
-                      disabled={isUpdateDisabled}
-                      aria-label="Update annotation"
-                      data-testid="bottombar-update-dropdown"
-                    >
+                    <Button disabled={isUpdateDisabled} aria-label="更新标注" data-testid="bottombar-update-dropdown">
                       <IconChevronDown />
                     </Button>
                   </Dropdown.Trigger>

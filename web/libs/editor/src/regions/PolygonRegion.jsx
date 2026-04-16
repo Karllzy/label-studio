@@ -502,6 +502,8 @@ const Edges = memo(
 const HtxPolygonView = ({ item, setShapeRef }) => {
   const { store } = item;
   const { suggestion } = useContext(ImageViewContext) ?? {};
+  const selectedTool = item.parent?.getToolsManager?.().findSelectedTool?.();
+  const isDrawingToolActive = !!selectedTool?.isDrawingTool;
 
   const regionStyles = useRegionStyles(item, {
     useStrokeAsFill: true,
@@ -615,7 +617,7 @@ const HtxPolygonView = ({ item, setShapeRef }) => {
       }}
       {...dragProps}
       draggable={!item.isReadOnly() && (!item.inSelection || item.parent?.selectedRegions?.length === 1)}
-      listening={!suggestion}
+      listening={!suggestion && !isDrawingToolActive}
     >
       <LabelOnPolygon item={item} color={regionStyles.strokeColor} />
 

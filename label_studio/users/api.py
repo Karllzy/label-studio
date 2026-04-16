@@ -3,20 +3,28 @@
 import logging
 
 from core.permissions import ViewClassPermission, all_permissions
+from django.contrib.auth import update_session_auth_hash
 from django.utils.decorators import method_decorator
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import generics, viewsets
+from rest_framework import generics, status, viewsets
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from users.functions import check_avatar
 from users.models import User
-from users.serializers import HotkeysSerializer, UserSerializer, UserSerializerUpdate, WhoAmIUserSerializer
+from users.serializers import (
+    AdminUserCreateSerializer,
+    AdminUserSerializer,
+    HotkeysSerializer,
+    UserSerializer,
+    UserSerializerUpdate,
+    WhoAmIUserSerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +226,11 @@ class UserAPI(viewsets.ModelViewSet):
         instance = serializer.save()
         self.request.user.active_organization.add_user(instance)
 
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        if serializer.context.get('password_changed') and self.request.user.pk == instance.pk:
+            update_session_auth_hash(self.request, instance)
+
     def retrieve(self, request, *args, **kwargs):
         return super(UserAPI, self).retrieve(request, *args, **kwargs)
 
@@ -418,3 +431,53 @@ class UserHotkeysAPI(APIView):
         except Exception as e:
             logger.error(f'Error updating hotkeys for user {request.user.pk}: {str(e)}')
             return Response({'error': 'Failed to update hotkeys configuration'}, status=500)
+
+
+class AdminUserListCreateAPI(generics.ListCreateAPIView):
+    """List all users or create a new user. Only accessible by system admins."""
+
+    permission_classes = [IsAuthenticated, IsAdminUser]
+    parser_classes = (JSONParser,)
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return AdminUserCreateSerializer
+        return AdminUserSerializer
+
+    def get_queryset(self):
+        return User.objects.all().order_by('-date_joined')
+
+    def perform_create(self, serializer):
+        from organizations.models import Organization
+
+        user = serializer.save()
+        org = self.request.user.active_organization
+        if org:
+            org.add_user(user)
+            user.active_organization = org
+            user.save(update_fields=['active_organization'])
+
+
+class AdminUserDetailAPI(generics.RetrieveUpdateDestroyAPIView):
+    """Retrieve, update, or delete a user. Only accessible by system admins."""
+
+    permission_classes = [IsAuthenticated, IsAdminUser]
+    serializer_class = AdminUserSerializer
+    parser_classes = (JSONParser,)
+
+    def get_queryset(self):
+        return User.objects.all()
+
+    def perform_update(self, serializer):
+        password = serializer.validated_data.pop('password', None)
+        user = serializer.save()
+        if password:
+            user.set_password(password)
+            user.save(update_fields=['password'])
+
+    def perform_destroy(self, instance):
+        if instance.is_superuser:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Cannot delete a system admin user.')
+        instance.is_active = False
+        instance.save(update_fields=['is_active'])

@@ -310,11 +310,19 @@ ALLOWED_HOSTS = get_env_list('ALLOWED_HOSTS', default=['*'])
 AUTH_USER_MODEL = 'users.User'
 AUTHENTICATION_BACKENDS = [
     'rules.permissions.ObjectPermissionBackend',
+    'users.backends.EmailOrUsernameBackend',
     'django.contrib.auth.backends.ModelBackend',
 ]
-USE_USERNAME_FOR_LOGIN = False
+USE_USERNAME_FOR_LOGIN = True
 
 DISABLE_SIGNUP_WITHOUT_LINK = get_bool_env('DISABLE_SIGNUP_WITHOUT_LINK', False)
+
+# Login page branding (override via environment variables)
+LOGIN_PAGE_TITLE = get_env('LOGIN_PAGE_TITLE', '数据管理平台')
+LOGIN_PAGE_SUBTITLE = get_env('LOGIN_PAGE_SUBTITLE', '高效 · 智能 · 安全')
+
+# Browser tab / APP_SETTINGS.page_title (React shell)
+APP_BROWSER_TITLE = get_env('APP_BROWSER_TITLE', '数据平台')
 
 # Password validation settings
 AUTH_PASSWORD_MIN_LENGTH = 8
@@ -539,10 +547,12 @@ DELAYED_EXPORT_DIR = 'export'
 os.makedirs(os.path.join(BASE_DATA_DIR, MEDIA_ROOT, DELAYED_EXPORT_DIR), exist_ok=True)
 
 # file / task size limits
-DATA_UPLOAD_MAX_MEMORY_SIZE = int(get_env('DATA_UPLOAD_MAX_MEMORY_SIZE', 250 * 1024 * 1024))
-DATA_UPLOAD_MAX_NUMBER_FILES = int(get_env('DATA_UPLOAD_MAX_NUMBER_FILES', 100))
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(get_env('DATA_UPLOAD_MAX_MEMORY_SIZE', 1024 * 1024 * 1024))  # 1 GB
+DATA_UPLOAD_MAX_NUMBER_FILES = int(get_env('DATA_UPLOAD_MAX_NUMBER_FILES', 1000))
 TASKS_MAX_NUMBER = 1000000
 TASKS_MAX_FILE_SIZE = DATA_UPLOAD_MAX_MEMORY_SIZE
+CHUNKED_UPLOAD_DIR = get_env('CHUNKED_UPLOAD_DIR', 'chunked_uploads')
+CHUNK_SIZE_DEFAULT = int(get_env('CHUNK_SIZE_DEFAULT', 50 * 1024 * 1024))  # 50 MB
 
 TASK_LOCK_TTL = int(get_env('TASK_LOCK_TTL', default=86400))
 
@@ -557,8 +567,13 @@ FROM_EMAIL = get_env('FROM_EMAIL', 'Label Studio <hello@labelstud.io>')
 EMAIL_BACKEND = get_env('EMAIL_BACKEND', 'django.core.mail.backends.dummy.EmailBackend')
 
 ENABLE_LOCAL_FILES_STORAGE = get_bool_env('ENABLE_LOCAL_FILES_STORAGE', default=True)
-LOCAL_FILES_SERVING_ENABLED = get_bool_env('LOCAL_FILES_SERVING_ENABLED', default=False)
+LOCAL_FILES_SERVING_ENABLED = get_bool_env('LOCAL_FILES_SERVING_ENABLED', default=True)
 LOCAL_FILES_DOCUMENT_ROOT = get_env('LOCAL_FILES_DOCUMENT_ROOT', default=os.path.abspath(os.sep))
+
+# Copy files from LOCAL_FILES_DOCUMENT_ROOT into project upload storage (no HTTP upload). Off by default.
+ENABLE_SERVER_SIDE_LOCAL_IMPORT = get_bool_env('ENABLE_SERVER_SIDE_LOCAL_IMPORT', default=False)
+SERVER_SIDE_LOCAL_IMPORT_MAX_FILES = int(get_env('SERVER_SIDE_LOCAL_IMPORT_MAX_FILES', 50000))
+SERVER_SIDE_LOCAL_IMPORT_MAX_PATH_ENTRIES = int(get_env('SERVER_SIDE_LOCAL_IMPORT_MAX_PATH_ENTRIES', 256))
 
 SYNC_ON_TARGET_STORAGE_CREATION = get_bool_env('SYNC_ON_TARGET_STORAGE_CREATION', default=True)
 
@@ -595,8 +610,8 @@ MIN_GROUND_TRUTH = 10
 DATA_UNDEFINED_NAME = '$undefined$'
 LICENSE = {}
 VERSIONS = {}
-VERSION_EDITION = 'Community'
-LATEST_VERSION_CHECK = get_bool_env('LATEST_VERSION_CHECK', True)
+VERSION_EDITION = 'Enterprise'
+LATEST_VERSION_CHECK = get_bool_env('LATEST_VERSION_CHECK', False)
 VERSIONS_CHECK_TIME = 0
 ALLOW_ORGANIZATION_WEBHOOKS = get_bool_env('ALLOW_ORGANIZATION_WEBHOOKS', False)
 CONVERTER_DOWNLOAD_RESOURCES = get_bool_env('CONVERTER_DOWNLOAD_RESOURCES', True)
@@ -724,7 +739,7 @@ FEATURE_FLAGS_FILE = get_env('FEATURE_FLAGS_FILE', 'feature_flags.json')
 # or if file is not set, default is using offline mode
 FEATURE_FLAGS_OFFLINE = get_bool_env('FEATURE_FLAGS_OFFLINE', True)
 # default value for feature flags (if not overridden by environment or client)
-FEATURE_FLAGS_DEFAULT_VALUE = False
+FEATURE_FLAGS_DEFAULT_VALUE = True
 
 # Whether to send analytics telemetry data. Fall back to old lowercase name for legacy compatibility.
 COLLECT_ANALYTICS = get_bool_env('COLLECT_ANALYTICS', get_bool_env('collect_analytics', True))

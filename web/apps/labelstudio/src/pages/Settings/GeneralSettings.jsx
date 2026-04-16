@@ -1,6 +1,5 @@
-import { Badge, Button, Select, Typography, Tooltip, EnterpriseBadge } from "@humansignal/ui";
+import { Button, Select, Typography, EnterpriseBadge } from "@humansignal/ui";
 import { useCallback, useContext } from "react";
-import { IconSpark } from "@humansignal/icons";
 import { Form, Input, TextArea } from "../../components/Form";
 import { RadioGroup } from "../../components/Form/Elements/RadioGroup/RadioGroup";
 import { ProjectContext } from "../../providers/ProjectProvider";
@@ -19,20 +18,21 @@ export const GeneralSettings = () => {
   const colors = ["#FDFDFC", "#FF4C25", "#FF750F", "#ECB800", "#9AC422", "#34988D", "#617ADA", "#CC6FBE"];
 
   const samplings = [
-    { value: "Sequential", label: "Sequential", description: "Tasks are ordered by Task ID" },
-    { value: "Uniform", label: "Random", description: "Tasks are chosen with uniform random" },
+    { value: "Sequential", label: "顺序", description: "任务按 ID 排序" },
+    { value: "Uniform", label: "随机", description: "任务随机选取" },
+    { value: "Uncertainty", label: "不确定性", description: "按模型预测分数优先标注，分数越低越优先" },
   ];
 
   return (
     <div className={cn("general-settings").toClassName()}>
       <div className={cn("general-settings").elem("wrapper").toClassName()}>
-        <h1>General Settings</h1>
+        <h1>通用设置</h1>
         <div className={cn("settings-wrapper").toClassName()}>
           <Form action="updateProject" formData={{ ...project }} params={{ pk: project.id }} onSubmit={updateProject}>
             <Form.Row columnCount={1} rowGap="16px">
-              <Input name="title" label="Project Name" />
+              <Input name="title" label="项目名称" />
 
-              <TextArea name="description" label="Description" style={{ minHeight: 128 }} />
+              <TextArea name="description" label="描述" style={{ minHeight: 128 }} />
               {isFF(FF_LSDV_E_297) && (
                 <div className={cn("workspace-placeholder").toClassName()}>
                   <div className={cn("workspace-placeholder").elem("badge-wrapper").toClassName()}>
@@ -59,7 +59,7 @@ export const GeneralSettings = () => {
                   </Typography>
                 </div>
               )}
-              <RadioGroup name="color" label="Color" size="large" labelProps={{ size: "large" }}>
+              <RadioGroup name="color" label="颜色" size="large" labelProps={{ size: "large" }}>
                 {colors.map((color) => (
                   <RadioGroup.Button key={color} value={color}>
                     <div className={cn("color").toClassName()} style={{ "--background": color }} />
@@ -67,7 +67,7 @@ export const GeneralSettings = () => {
                 ))}
               </RadioGroup>
 
-              <RadioGroup label="Task Sampling" labelProps={{ size: "large" }} name="sampling" simple>
+              <RadioGroup label="任务采样" labelProps={{ size: "large" }} name="sampling" simple>
                 {samplings.map(({ value, label, description }) => (
                   <RadioGroup.Button
                     key={value}
@@ -76,51 +76,15 @@ export const GeneralSettings = () => {
                     description={description}
                   />
                 ))}
-                {isFF(FF_LSDV_E_297) && (
-                  <RadioGroup.Button
-                    key="uncertainty-sampling"
-                    value=""
-                    label={
-                      <>
-                        Uncertainty sampling{" "}
-                        <Tooltip title="Available on Label Studio Enterprise">
-                          <Badge
-                            variant="enterprise"
-                            icon={<IconSpark />}
-                            size="small"
-                            style="ghost"
-                            className="ml-tightest"
-                          />
-                        </Tooltip>
-                      </>
-                    }
-                    disabled
-                    description={
-                      <>
-                        Tasks are chosen according to model uncertainty score (active learning mode).{" "}
-                        <a
-                          target="_blank"
-                          href={createURL("https://docs.humansignal.com/guide/active_learning", {
-                            experiment: "project_settings_workspace",
-                            treatment: "workspaces",
-                          })}
-                          rel="noreferrer"
-                        >
-                          Learn more
-                        </a>
-                      </>
-                    }
-                  />
-                )}
               </RadioGroup>
             </Form.Row>
 
             <Form.Actions>
               <Form.Indicator>
-                <span case="success">Saved!</span>
+                <span case="success">已保存</span>
               </Form.Indicator>
-              <Button type="submit" className="w-[150px]" aria-label="Save general settings">
-                Save
+              <Button type="submit" className="w-[150px]" aria-label="保存通用设置">
+                保存
               </Button>
             </Form.Actions>
           </Form>
@@ -131,6 +95,6 @@ export const GeneralSettings = () => {
   );
 };
 
-GeneralSettings.menuItem = "General";
+GeneralSettings.menuItem = "通用";
 GeneralSettings.path = "/";
 GeneralSettings.exact = true;

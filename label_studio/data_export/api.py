@@ -28,13 +28,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from tasks.models import Task
 
-from .models import ConvertedFormat, DataExport, Export
+from .models import ConvertedFormat, DataExport, Export, PackagedExport
 from .serializers import (
     ExportConvertSerializer,
     ExportCreateSerializer,
     ExportDataSerializer,
     ExportParamSerializer,
     ExportSerializer,
+    PackagedExportCreateSerializer,
+    PackagedExportSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -729,3 +731,284 @@ class ExportConvertAPI(generics.CreateAPIView):
             on_failure=set_convert_background_failure,
         )
         return Response({'export_type': export_type, 'converted_format': converted_format.id})
+
+
+def export_to_folder_background(packaged_export_id, hostname=None, **kwargs):
+    """Background job: export project data to a folder and create a zip package."""
+    import shutil
+    import tempfile
+
+    import ujson as json
+    from core.utils.common import batch
+    from django.core.files import File
+
+    try:
+        pe = PackagedExport.objects.select_related('project').get(id=packaged_export_id)
+    except PackagedExport.DoesNotExist:
+        logger.error(f'PackagedExport {packaged_export_id} not found')
+        return
+
+    pe.status = PackagedExport.Status.IN_PROGRESS
+    pe.save(update_fields=['status'])
+
+    try:
+        project = pe.project
+        export_format = pe.export_format or 'JSON'
+
+        target_base = pe.target_path
+        if not target_base:
+            target_base = os.path.join(settings.EXPORT_DIR, 'packages')
+        os.makedirs(target_base, exist_ok=True)
+
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        safe_title = ''.join(c if c.isalnum() or c in '-_ ' else '_' for c in project.title)[:50]
+        folder_name = f'{safe_title}_{timestamp}'
+        export_dir = os.path.join(target_base, folder_name)
+        os.makedirs(export_dir, exist_ok=True)
+
+        project_info = {
+            'project_id': project.id,
+            'project_title': project.title,
+            'export_format': export_format,
+            'exported_at': datetime.now().isoformat(),
+            'task_count': project.tasks.count(),
+            'annotation_count': project.tasks.filter(annotations__isnull=False).distinct().count(),
+        }
+        with open(os.path.join(export_dir, 'project_info.json'), 'w', encoding='utf-8') as f:
+            json.dump(project_info, f, ensure_ascii=False, indent=2)
+
+        annotations_dir = os.path.join(export_dir, 'annotations')
+        os.makedirs(annotations_dir, exist_ok=True)
+
+        task_ids = list(project.tasks.values_list('id', flat=True))
+        all_tasks = []
+        for chunk_ids in batch(task_ids, 1000):
+            tasks_qs = Task.objects.filter(id__in=chunk_ids).select_related('project').prefetch_related(
+                'annotations', 'predictions'
+            )
+            all_tasks += ExportDataSerializer(tasks_qs, many=True).data
+
+        tasks_json = json.dumps(all_tasks, ensure_ascii=False)
+        input_json_path = os.path.join(annotations_dir, 'export.json')
+        with open(input_json_path, 'w', encoding='utf-8') as f:
+            f.write(tasks_json)
+
+        if export_format != 'JSON':
+            from core.utils.io import get_temp_dir
+            from label_studio_sdk.converter import Converter
+
+            converter = Converter(
+                config=project.get_parsed_config(),
+                project_dir=None,
+                upload_dir=os.path.join(settings.MEDIA_ROOT, settings.UPLOAD_DIR),
+                download_resources=pe.include_resources,
+                hostname=hostname,
+            )
+            with get_temp_dir() as tmp_dir:
+                converter.convert(input_json_path, tmp_dir, export_format, is_dir=False)
+                for item in os.listdir(tmp_dir):
+                    src = os.path.join(tmp_dir, item)
+                    dst = os.path.join(annotations_dir, item)
+                    if os.path.isdir(src):
+                        shutil.copytree(src, dst)
+                    else:
+                        shutil.copy2(src, dst)
+            if not pe.include_resources:
+                try:
+                    os.remove(input_json_path)
+                except OSError:
+                    pass
+
+        if pe.include_resources:
+            data_dir = os.path.join(export_dir, 'data')
+            os.makedirs(data_dir, exist_ok=True)
+            upload_dir = os.path.join(settings.MEDIA_ROOT, settings.UPLOAD_DIR)
+            if os.path.isdir(upload_dir):
+                project_upload = os.path.join(upload_dir, str(project.id))
+                if os.path.isdir(project_upload):
+                    shutil.copytree(project_upload, os.path.join(data_dir, str(project.id)), dirs_exist_ok=True)
+
+        with open(os.path.join(export_dir, 'README.txt'), 'w', encoding='utf-8') as f:
+            f.write(f'Project: {project.title}\n')
+            f.write(f'Export format: {export_format}\n')
+            f.write(f'Exported at: {datetime.now().isoformat()}\n')
+            f.write(f'Tasks: {len(all_tasks)}\n\n')
+            f.write('Directory structure:\n')
+            f.write('  annotations/  - Annotation data\n')
+            if pe.include_resources:
+                f.write('  data/         - Original data files\n')
+            f.write('  project_info.json - Project metadata\n')
+
+        zip_base = os.path.join(target_base, folder_name)
+        shutil.make_archive(zip_base, 'zip', export_dir)
+        zip_path = zip_base + '.zip'
+
+        pe_file_path = f'{project.id}/{folder_name}.zip'
+        with open(zip_path, 'rb') as zf:
+            pe.zip_file.save(pe_file_path, File(zf))
+
+        pe.counters = {
+            'tasks': len(all_tasks),
+            'export_dir': export_dir,
+        }
+        pe.status = PackagedExport.Status.COMPLETED
+        pe.finished_at = datetime.now()
+        pe.save(update_fields=['status', 'finished_at', 'counters', 'zip_file'])
+
+        try:
+            os.remove(zip_path)
+        except OSError:
+            pass
+
+    except Exception:
+        pe.status = PackagedExport.Status.FAILED
+        pe.traceback = tb.format_exc()
+        pe.finished_at = datetime.now()
+        pe.save(update_fields=['status', 'traceback', 'finished_at'])
+        raise
+
+
+def set_export_to_folder_failure(job, connection, type, value, traceback_obj):
+    pe_id = job.args[0]
+    try:
+        trace = ''.join(tb.format_exception(type, value, traceback_obj))
+    except Exception:
+        trace = 'Exception while processing traceback'
+    PackagedExport.objects.filter(id=pe_id).update(
+        status=PackagedExport.Status.FAILED,
+        traceback=trace,
+        finished_at=datetime.now(),
+    )
+
+
+@method_decorator(
+    name='get',
+    decorator=extend_schema(
+        tags=['Export'],
+        summary='List packaged exports',
+        description='List all packaged exports for a project.',
+    ),
+)
+@method_decorator(
+    name='post',
+    decorator=extend_schema(
+        tags=['Export'],
+        summary='Create packaged export to folder',
+        description='Export project data to a server folder and generate a downloadable zip package.',
+        request=PackagedExportCreateSerializer,
+    ),
+)
+class PackagedExportListAPI(generics.ListCreateAPIView):
+    queryset = PackagedExport.objects.all()
+    permission_required = all_permissions.projects_change
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return PackagedExportCreateSerializer
+        return PackagedExportSerializer
+
+    def _get_project(self):
+        project_pk = self.kwargs.get('pk')
+        return generics.get_object_or_404(
+            Project.objects.for_user(self.request.user), pk=project_pk
+        )
+
+    def get_queryset(self):
+        project = self._get_project()
+        return PackagedExport.objects.filter(project=project).order_by('-created_at')[:50]
+
+    def create(self, request, *args, **kwargs):
+        project = self._get_project()
+        serializer = PackagedExportCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        pe = PackagedExport.objects.create(
+            project=project,
+            created_by=request.user,
+            export_format=serializer.validated_data.get('export_format', 'JSON'),
+            target_path=serializer.validated_data.get('target_path', ''),
+            include_resources=serializer.validated_data.get('include_resources', False),
+        )
+
+        start_job_async_or_sync(
+            export_to_folder_background,
+            pe.id,
+            hostname=request.build_absolute_uri('/'),
+            on_failure=set_export_to_folder_failure,
+        )
+
+        return Response(PackagedExportSerializer(pe).data, status=status.HTTP_201_CREATED)
+
+
+@method_decorator(
+    name='get',
+    decorator=extend_schema(
+        tags=['Export'],
+        summary='Get packaged export status',
+        description='Get status and details of a specific packaged export.',
+    ),
+)
+@method_decorator(
+    name='delete',
+    decorator=extend_schema(
+        tags=['Export'],
+        summary='Delete packaged export',
+        description='Delete a packaged export and its zip file.',
+    ),
+)
+class PackagedExportDetailAPI(generics.RetrieveDestroyAPIView):
+    queryset = PackagedExport.objects.all()
+    serializer_class = PackagedExportSerializer
+    lookup_url_kwarg = 'export_pk'
+    permission_required = all_permissions.projects_change
+
+    def _get_project(self):
+        project_pk = self.kwargs.get('pk')
+        return generics.get_object_or_404(
+            Project.objects.for_user(self.request.user), pk=project_pk
+        )
+
+    def get_queryset(self):
+        project = self._get_project()
+        return PackagedExport.objects.filter(project=project)
+
+    def perform_destroy(self, instance):
+        if instance.zip_file:
+            instance.zip_file.delete()
+        instance.delete()
+
+
+@method_decorator(
+    name='get',
+    decorator=extend_schema(
+        tags=['Export'],
+        summary='Download packaged export',
+        description='Download the zip file of a packaged export.',
+    ),
+)
+class PackagedExportDownloadAPI(generics.RetrieveAPIView):
+    queryset = PackagedExport.objects.all()
+    serializer_class = None
+    lookup_url_kwarg = 'export_pk'
+    permission_required = all_permissions.projects_change
+
+    def _get_project(self):
+        project_pk = self.kwargs.get('pk')
+        return generics.get_object_or_404(
+            Project.objects.for_user(self.request.user), pk=project_pk
+        )
+
+    def get_queryset(self):
+        project = self._get_project()
+        return PackagedExport.objects.filter(project=project)
+
+    def get(self, request, *args, **kwargs):
+        pe = self.get_object()
+        if pe.status != PackagedExport.Status.COMPLETED or not pe.zip_file:
+            return HttpResponse('Export is not completed or zip file not available', status=404)
+
+        response = RangedFileResponse(request, pe.zip_file, content_type='application/zip')
+        filename = pe.zip_filename or f'export_{pe.id}.zip'
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['filename'] = filename
+        return response

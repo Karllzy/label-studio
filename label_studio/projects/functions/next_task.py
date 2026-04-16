@@ -126,8 +126,12 @@ def _try_uncertainty_sampling(
     prepared_tasks: QuerySet[Task],
 ) -> Union[Task, None]:
     task_with_current_predictions = tasks.filter(predictions__model_version=project.model_version)
-    if task_with_current_predictions.exists():
+    task_with_fallback_predictions = tasks.filter(predictions__score__isnull=False)
+
+    if task_with_current_predictions.exists() or task_with_fallback_predictions.exists():
         logger.debug('Use uncertainty sampling')
+        ranking_tasks = task_with_current_predictions if task_with_current_predictions.exists() else task_with_fallback_predictions
+
         # collect all clusters already solved by user, count number of solved task in them
         user_solved_clusters = (
             prepared_tasks.filter(pk__in=user_solved_tasks_array)
@@ -139,21 +143,21 @@ def _try_uncertainty_sampling(
         cluster_num_solved_map = [When(predictions__cluster=k, then=v) for k, v in user_solved_clusters.items()]
 
         # WARNING! this call doesn't work after consequent annotate
-        num_tasks_with_current_predictions = task_with_current_predictions.count()
+        num_tasks_with_ranked_predictions = ranking_tasks.count()
         if cluster_num_solved_map:
-            task_with_current_predictions = task_with_current_predictions.annotate(
+            ranking_tasks = ranking_tasks.annotate(
                 cluster_num_solved=Case(*cluster_num_solved_map, default=0, output_field=DecimalField())
             )
             # next task is chosen from least solved cluster and with lowest prediction score
-            possible_next_tasks = task_with_current_predictions.order_by('cluster_num_solved', 'predictions__score')
+            possible_next_tasks = ranking_tasks.order_by('cluster_num_solved', 'predictions__score')
         else:
-            possible_next_tasks = task_with_current_predictions.order_by('predictions__score')
+            possible_next_tasks = ranking_tasks.order_by('predictions__score')
 
         num_annotators = project.annotators().count()
-        if num_annotators > 1 and num_tasks_with_current_predictions > 0:
+        if num_annotators > 1 and num_tasks_with_ranked_predictions > 0:
             # try to randomize tasks to avoid concurrent labeling between several annotators
             next_task = _get_random_unlocked(
-                possible_next_tasks, user, upper_limit=min(num_annotators + 1, num_tasks_with_current_predictions)
+                possible_next_tasks, user, upper_limit=min(num_annotators + 1, num_tasks_with_ranked_predictions)
             )
         else:
             next_task = _get_first_unlocked(possible_next_tasks, user)

@@ -11,6 +11,7 @@ import { TabStore } from "./Tabs";
 import { CustomJSON } from "./types";
 import { User } from "./Users";
 import { ActivityObserver } from "../utils/ActivityObserver";
+import { dmUserStorageKey } from "../utils/dm-user-storage";
 
 /**
  * @type {ActivityObserver | null}
@@ -195,14 +196,16 @@ export const AppStore = types
           annotation: annotationID ?? null,
           interaction: null,
           region: null,
+          review: null,
         });
       } else {
-        const { task, region, annotation } = History.getParams();
+        const { task, region, annotation, review } = History.getParams();
         History.navigate(
           {
             task,
             region,
             annotation,
+            ...(isDefined(review) ? { review } : {}),
           },
           true,
         );
@@ -297,7 +300,7 @@ export const AppStore = types
       }
 
       if (options?.pushState !== false) {
-        History.navigate({ task: null, annotation: null });
+        History.navigate({ task: null, annotation: null, review: null });
       }
     },
 
@@ -572,7 +575,7 @@ export const AppStore = types
     fetchData: flow(function* ({ isLabelStream } = {}) {
       self.setLoading(true);
 
-      const { tab, task, labeling, query } = History.getParams();
+      const { tab, task, labeling, query, annotation } = History.getParams();
 
       self.viewsStore.fetchColumns();
 
@@ -607,7 +610,7 @@ export const AppStore = types
             ),
           );
         } else {
-          requests.push(self.viewsStore.fetchTabs(tab, task, labeling));
+          requests.push(self.viewsStore.fetchTabs(tab, task, labeling, annotation));
         }
       } else if (isLabelStream && !!tab) {
         const { selectedItems } = JSON.parse(decodeURIComponent(query ?? "{}"));
@@ -719,7 +722,11 @@ export const AppStore = types
 
       if (view && needsLock && !actionCallback) view.lock();
 
-      const labelStreamMode = localStorage.getItem("dm:labelstream:mode");
+      const labelStreamUserKey = dmUserStorageKey("dm:labelstream:mode");
+      let labelStreamMode = localStorage.getItem(labelStreamUserKey);
+      if (labelStreamMode == null) {
+        labelStreamMode = localStorage.getItem("dm:labelstream:mode");
+      }
 
       // @todo this is dirty way to sync across nested apps
       // don't apply filters for "all" on "next_task"
@@ -736,15 +743,23 @@ export const AppStore = types
         const isSelectAll = actionParams.selectedItems.all === true;
         const isAllLabelStreamMode = labelStreamMode === "all";
         const isFilteredLabelStreamMode = labelStreamMode === "filtered";
+        const currentTaskId = self.LSF?.task?.id ?? self.taskStore?.selected?.id;
         if (isAllLabelStreamMode && !isSelectAll) {
           delete actionParams.filters;
 
           if (actionParams.selectedItems.all === false && actionParams.selectedItems.included.length === 0) {
             delete actionParams.selectedItems;
-            delete actionParams.ordering;
+          }
+
+          if (isDefined(currentTaskId)) {
+            actionParams.currentTaskId = currentTaskId;
           }
         } else if (isFilteredLabelStreamMode) {
           delete actionParams.selectedItems;
+
+          if (isDefined(currentTaskId)) {
+            actionParams.currentTaskId = currentTaskId;
+          }
         }
       }
 
@@ -762,8 +777,32 @@ export const AppStore = types
         id: actionId,
       };
 
-      if (isDefined(view.id) && !view?.virtual) {
-        requestParams.tabID = view.id;
+      // DM actions API resolves the task queue via get_prepare_params(), which reads `view` or `query`
+      // from the request — not `tabID`. Sending tabID meant next_task ignored the tab and used only the
+      // JSON body, which often did not match the saved view (e.g. "label from current list" showed empty queue).
+      const attachViewContextToRequest = () => {
+        if (isDefined(view.id) && !view?.virtual) {
+          requestParams.view = view.id;
+        } else if (view?.virtual && view.query) {
+          requestParams.query = view.query;
+        }
+      };
+
+      if (actionId === "next_task") {
+        const isSelectAll = actionParams.selectedItems?.all === true;
+        const isAllLabelStreamMode = labelStreamMode === "all";
+        const isFilteredLabelStreamMode = labelStreamMode === "filtered";
+        // "Label all tasks" clears filters in the body; if we still pass `view`, the server would apply
+        // the tab's saved filters and shrink the queue. Omit view/query so only the body drives scope.
+        const omitViewForUnfilteredAllStream = isAllLabelStreamMode && !isSelectAll;
+
+        if (isFilteredLabelStreamMode && view?.query) {
+          requestParams.query = view.query;
+        } else if (!omitViewForUnfilteredAllStream) {
+          attachViewContextToRequest();
+        }
+      } else {
+        attachViewContextToRequest();
       }
 
       if (options.body) {

@@ -55,9 +55,10 @@ class ExportMixin:
         if 'view' in task_filter_options:
             try:
                 value = int(task_filter_options['view'])
-                prepare_params = View.objects.get(project=self.project, id=value).get_prepare_tasks_params(
-                    add_selected_items=True
-                )
+                view_qs = View.objects.filter(project=self.project, id=value)
+                if self.created_by_id:
+                    view_qs = view_qs.filter(user=self.created_by)
+                prepare_params = view_qs.get().get_prepare_tasks_params(add_selected_items=True)
                 tab_tasks = Task.prepared.only_filtered(prepare_params=prepare_params).values_list('id', flat=True)
                 tasks = tasks.filter(id__in=tab_tasks)
             except (ValueError, View.DoesNotExist) as exc:

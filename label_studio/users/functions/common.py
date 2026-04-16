@@ -58,8 +58,6 @@ def check_avatar(files):
 def save_user(request, next_page, user_form):
     """Save user instance to DB"""
     user = user_form.save()
-    user.username = user.email.split('@')[0]
-    user.save()
 
     if Organization.objects.exists():
         org = Organization.objects.first()
@@ -80,7 +78,7 @@ def save_user(request, next_page, user_form):
         request.advanced_json['elaborate'] = user_form.cleaned_data.get('elaborate', '')
 
     redirect_url = next_page if next_page else reverse('projects:project-index')
-    login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+    login(request, user, backend=getattr(user, 'backend', 'users.backends.EmailOrUsernameBackend'))
     return redirect(redirect_url)
 
 

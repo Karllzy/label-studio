@@ -13,7 +13,6 @@ import { Relations as RelationsComponent } from "./Relations";
 import { RelationsControls } from "./RelationsControls";
 import { EmptyState } from "../Components/EmptyState";
 import { IconCursor, IconRelationLink } from "@humansignal/icons";
-import { getDocsUrl } from "../../../utils/docs";
 
 interface DetailsPanelProps extends PanelProps {
   regions: any;
@@ -24,7 +23,7 @@ const DetailsPanelComponent: FC<DetailsPanelProps> = ({ currentEntity, regions, 
   const selectedRegions = regions.selection;
 
   return (
-    <PanelBase {...props} currentEntity={currentEntity} name="details" title="Details">
+    <PanelBase {...props} currentEntity={currentEntity} name="details" title="详情">
       <Content selection={selectedRegions} currentEntity={currentEntity} />
     </PanelBase>
   );
@@ -79,7 +78,7 @@ const RelationsTab: FC<any> = inject("store")(
               <>
                 <div className={cn("relations").elem("view-control").toClassName()}>
                   <div className={cn("relations").elem("section-head").toClassName()}>
-                    Relations ({relationStore.size})
+                    关系 ({relationStore.size})
                   </div>
                   <RelationsControls relationStore={relationStore} />
                 </div>
@@ -88,16 +87,13 @@ const RelationsTab: FC<any> = inject("store")(
                 </div>
               </>
             ) : (
-              <EmptyState
-                icon={<IconRelationLink width={24} height={24} />}
-                header="Create relations between regions"
-                description={<>Link regions to define relationships between them</>}
-                learnMore={{
-                  href: getDocsUrl("guide/labeling#Add-relations-between-annotations"),
-                  text: "Learn more",
-                  testId: "relations-panel-learn-more",
-                }}
-              />
+                <EmptyState
+                  icon={<IconRelationLink width={24} height={24} />}
+                  header="在区域之间建立关系"
+                  description={
+                    <>把两个标注区域连接起来，用于表达“属于”“指向”“上下级”等语义关系</>
+                  }
+                />
             )}
           </div>
         </div>
@@ -119,7 +115,7 @@ const HistoryTab: FC<any> = inject("store")(
               enabled={showAnnotationHistory}
               sectionHeader={
                 <>
-                  Annotation History
+                  标注历史
                   <span>#{currentEntity.pk ?? currentEntity.id}</span>
                 </>
               }
@@ -139,11 +135,11 @@ const InfoTab: FC<any> = inject("store")(
         <div className={cn("info").toClassName()}>
           <div className={cn("info").elem("section-tab").toClassName()}>
             {nothingSelected ? (
-              <EmptyState
-                icon={<IconCursor width={24} height={24} />}
-                header="View region details"
-                description={<>Select a region to view its properties, metadata and available actions</>}
-              />
+                <EmptyState
+                  icon={<IconCursor width={24} height={24} />}
+                  header="查看区域详情"
+                  description={<>选中一个区域后，可在这里查看其属性、元数据和可执行操作</>}
+                />
             ) : (
               <>
                 <RegionsPanel regions={selection} />
@@ -180,7 +176,7 @@ const GeneralPanel: FC<any> = inject("store")(
             enabled={showAnnotationHistory}
             sectionHeader={
               <>
-                Annotation History
+                标注历史
                 <span>#{currentEntity.pk ?? currentEntity.id}</span>
               </>
             }
@@ -188,7 +184,7 @@ const GeneralPanel: FC<any> = inject("store")(
         </div>
         <div className={cn("details").elem("section").toClassName()}>
           <div className={cn("details").elem("view-control").toClassName()}>
-            <div className={cn("details").elem("section-head").toClassName()}>Relations ({relationStore.size})</div>
+            <div className={cn("details").elem("section-head").toClassName()}>关系 ({relationStore.size})</div>
             <RelationsControls relationStore={relationStore} />
           </div>
           <div className={cn("details").elem("section-content").toClassName()}>
@@ -197,7 +193,7 @@ const GeneralPanel: FC<any> = inject("store")(
         </div>
         {store.hasInterface("annotations:comments") && store.commentStore.isCommentable && (
           <div className={cn("details").elem("section").toClassName()}>
-            <div className={cn("details").elem("section-head").toClassName()}>Comments</div>
+            <div className={cn("details").elem("section-head").toClassName()}>评论</div>
             <div className={cn("details").elem("section-content").toClassName()}>
               <CommentsComponent
                 annotationStore={store.annotationStore}

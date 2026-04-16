@@ -89,6 +89,10 @@ export interface LSFAnnotationData {
   leadTime?: number;
 
   skipped?: boolean;
+
+  /** Pending / approved / rejected — used for reviewer UI in Data Manager */
+  review_status?: string | null;
+  was_cancelled?: boolean;
 }
 
 export interface LSFAnnotation extends LSFAnnotationData {

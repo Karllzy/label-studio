@@ -58,7 +58,7 @@ export const ImportDialog = ({ open, onOpenChange, onImport }: ImportDialogProps
    */
   const validateHotkey = (hotkey: unknown): void => {
     if (!hotkey || typeof hotkey !== "object") {
-      throw new Error("Invalid hotkey object");
+      throw new Error("快捷键对象无效");
     }
 
     const hotkeyObj = hotkey as Record<string, unknown>;
@@ -66,7 +66,7 @@ export const ImportDialog = ({ open, onOpenChange, onImport }: ImportDialogProps
     const missingFields = requiredFields.filter((field) => !hotkeyObj[field]);
 
     if (missingFields.length > 0) {
-      throw new Error(`Missing required fields: ${missingFields.join(", ")}`);
+      throw new Error(`缺少必填字段：${missingFields.join(", ")}`);
     }
   };
 
@@ -81,7 +81,7 @@ export const ImportDialog = ({ open, onOpenChange, onImport }: ImportDialogProps
 
       // Validate input exists
       if (!importText.trim()) {
-        throw new Error("Please enter JSON data to import");
+        throw new Error("请输入要导入的 JSON 数据");
       }
 
       // Parse the JSON
@@ -97,16 +97,16 @@ export const ImportDialog = ({ open, onOpenChange, onImport }: ImportDialogProps
         // New format: object with hotkeys property
         const dataObj = parsedData as { hotkeys?: unknown };
         if (!Array.isArray(dataObj.hotkeys)) {
-          throw new Error("Invalid format: hotkeys property must be an array");
+          throw new Error("数据格式无效：hotkeys 字段必须是数组");
         }
         hotkeys = dataObj.hotkeys;
       } else {
-        throw new Error("Invalid format: expected an array of hotkeys or an object with a hotkeys property");
+        throw new Error("数据格式无效：应为快捷键数组，或包含 hotkeys 字段的对象");
       }
 
       // Validate it's not empty
       if (hotkeys.length === 0) {
-        throw new Error("No hotkeys found in the imported data");
+        throw new Error("导入数据中未找到快捷键");
       }
 
       // Validate each hotkey object
@@ -114,8 +114,8 @@ export const ImportDialog = ({ open, onOpenChange, onImport }: ImportDialogProps
         try {
           validateHotkey(hotkey);
         } catch (validationError: unknown) {
-          const errorMessage = validationError instanceof Error ? validationError.message : "Unknown validation error";
-          throw new Error(`Hotkey at index ${index}: ${errorMessage}`);
+          const errorMessage = validationError instanceof Error ? validationError.message : "未知校验错误";
+          throw new Error(`第 ${index} 条快捷键有误：${errorMessage}`);
         }
       });
 
@@ -126,7 +126,7 @@ export const ImportDialog = ({ open, onOpenChange, onImport }: ImportDialogProps
       resetDialogState();
     } catch (err: unknown) {
       // Set error message for display
-      const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";
+      const errorMessage = err instanceof Error ? err.message : "发生未知错误";
       setError(errorMessage);
     }
   };
@@ -163,10 +163,9 @@ export const ImportDialog = ({ open, onOpenChange, onImport }: ImportDialogProps
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[525px] bg-neutral-surface">
         <DialogHeader>
-          <DialogTitle>Import Hotkeys</DialogTitle>
+          <DialogTitle>导入快捷键</DialogTitle>
           <DialogDescription>
-            Paste your exported hotkeys JSON below. This will replace your current hotkeys. Make sure the JSON contains
-            an array of hotkey objects with the required fields.
+            将导出的快捷键 JSON 粘贴到下方。导入后会替换当前快捷键，请确认 JSON 中包含必填字段。
           </DialogDescription>
         </DialogHeader>
 
@@ -175,12 +174,12 @@ export const ImportDialog = ({ open, onOpenChange, onImport }: ImportDialogProps
             htmlFor="import-json"
             className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
           >
-            Hotkeys JSON
+            快捷键 JSON
           </label>
           <textarea
             id="import-json"
             className="flex min-h-[150px] w-full rounded-md border border-neutral-border bg-transparent px-tight py-tighter typography-body-small placeholder:text-neutral-content-subtler focus-visible:ring-4 focus-visible:ring-primary-focus-outline focus-visible:border-neutral-border-bolder focus-visible:outline-0 transition-all resize-none"
-            placeholder='[{"id": 1, "section": "annotation-actions", "element": "button", "label": "Save", "key": "Ctrl+S"}]'
+            placeholder='[{"id": 1, "section": "annotation", "element": "annotation:submit", "label": "提交标注", "key": "Ctrl+Enter"}]'
             value={importText}
             onChange={handleTextareaChange}
             aria-describedby={error ? "import-error" : undefined}
@@ -188,7 +187,7 @@ export const ImportDialog = ({ open, onOpenChange, onImport }: ImportDialogProps
 
           {error && (
             <Alert variant="destructive" id="import-error">
-              <AlertTitle>Import Error</AlertTitle>
+              <AlertTitle>导入失败</AlertTitle>
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
@@ -196,10 +195,10 @@ export const ImportDialog = ({ open, onOpenChange, onImport }: ImportDialogProps
 
         <DialogFooter>
           <Button variant="neutral" onClick={handleCancel}>
-            Cancel
+            取消
           </Button>
           <Button onClick={handleImport} disabled={!importText.trim()}>
-            Import Hotkeys
+            导入快捷键
           </Button>
         </DialogFooter>
       </DialogContent>

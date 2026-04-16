@@ -47,9 +47,9 @@ from .functions import (
     set_import_background_failure,
     set_reimport_background_failure,
 )
-from .models import FileUpload
+from .models import ChunkedUpload, FileUpload
 from .serializers import FileUploadSerializer, ImportApiSerializer, PredictionSerializer
-from .uploader import create_file_uploads, load_tasks
+from .uploader import create_file_uploads, create_file_uploads_from_local_document_paths, load_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -1027,3 +1027,247 @@ class DownloadStorageData(APIView):
             response['Content-Disposition'] = f'inline; filename="{filepath}"'
             response['filename'] = filepath
             return response
+
+
+@method_decorator(
+    name='post',
+    decorator=extend_schema(
+        tags=['Import'],
+        summary='Initialize chunked upload',
+        description='Start a new chunked file upload session.',
+    ),
+)
+class ChunkedUploadInitAPI(APIView):
+    """Initialize a chunked upload session for large files."""
+
+    parser_classes = (JSONParser,)
+    permission_required = all_permissions.projects_change
+
+    def post(self, request, *args, **kwargs):
+        project = generics.get_object_or_404(
+            Project.objects.for_user(request.user), pk=kwargs['pk']
+        )
+
+        filename = request.data.get('filename')
+        total_size = request.data.get('total_size', 0)
+        total_chunks = request.data.get('total_chunks', 1)
+
+        if not filename:
+            raise ValidationError('filename is required')
+
+        chunked = ChunkedUpload.objects.create(
+            user=request.user,
+            project=project,
+            filename=filename,
+            total_size=total_size,
+            total_chunks=total_chunks,
+        )
+
+        import os
+        os.makedirs(chunked.chunk_dir, exist_ok=True)
+
+        return Response({
+            'upload_id': str(chunked.upload_id),
+            'filename': chunked.filename,
+            'total_chunks': chunked.total_chunks,
+        }, status=status.HTTP_201_CREATED)
+
+
+@method_decorator(
+    name='post',
+    decorator=extend_schema(
+        tags=['Import'],
+        summary='Upload a chunk',
+        description='Upload a single chunk of a chunked file upload.',
+    ),
+)
+class ChunkedUploadPartAPI(APIView):
+    """Upload a single chunk of a file."""
+
+    parser_classes = (MultiPartParser,)
+    permission_required = all_permissions.projects_change
+
+    def post(self, request, *args, **kwargs):
+        upload_id = request.data.get('upload_id')
+        chunk_index = int(request.data.get('chunk_index', 0))
+        chunk_file = request.FILES.get('chunk')
+
+        if not upload_id or chunk_file is None:
+            raise ValidationError('upload_id and chunk file are required')
+
+        try:
+            chunked = ChunkedUpload.objects.get(
+                upload_id=upload_id,
+                project_id=kwargs['pk'],
+                user=request.user,
+                status=ChunkedUpload.Status.UPLOADING,
+            )
+        except ChunkedUpload.DoesNotExist:
+            raise ValidationError('Invalid upload_id or upload already completed')
+
+        chunk_path = chunked.get_chunk_path(chunk_index)
+        import os
+        os.makedirs(os.path.dirname(chunk_path), exist_ok=True)
+
+        with open(chunk_path, 'wb') as f:
+            for part in chunk_file.chunks():
+                f.write(part)
+
+        chunked.uploaded_chunks = chunk_index + 1
+        chunked.save(update_fields=['uploaded_chunks', 'updated_at'])
+
+        return Response({
+            'upload_id': str(chunked.upload_id),
+            'chunk_index': chunk_index,
+            'uploaded_chunks': chunked.uploaded_chunks,
+            'total_chunks': chunked.total_chunks,
+        })
+
+
+@method_decorator(
+    name='post',
+    decorator=extend_schema(
+        tags=['Import'],
+        summary='Complete chunked upload',
+        description='Merge chunks and create a FileUpload, then import into the project.',
+    ),
+)
+class ChunkedUploadCompleteAPI(APIView):
+    """Complete the chunked upload: merge chunks and process into the project."""
+
+    parser_classes = (JSONParser,)
+    permission_required = all_permissions.projects_change
+
+    def post(self, request, *args, **kwargs):
+        upload_id = request.data.get('upload_id')
+        commit_to_project = request.data.get('commit_to_project', True)
+
+        if not upload_id:
+            raise ValidationError('upload_id is required')
+
+        try:
+            chunked = ChunkedUpload.objects.get(
+                upload_id=upload_id,
+                project_id=kwargs['pk'],
+                user=request.user,
+                status=ChunkedUpload.Status.UPLOADING,
+            )
+        except ChunkedUpload.DoesNotExist:
+            raise ValidationError('Invalid upload_id or upload already completed')
+
+        if chunked.uploaded_chunks < chunked.total_chunks:
+            raise ValidationError(
+                f'Not all chunks uploaded: {chunked.uploaded_chunks}/{chunked.total_chunks}'
+            )
+
+        try:
+            merged_path = chunked.merge_chunks()
+
+            from django.core.files.uploadedfile import SimpleUploadedFile
+            import os
+
+            with open(merged_path, 'rb') as f:
+                uploaded_file = SimpleUploadedFile(
+                    name=chunked.filename,
+                    content=f.read(),
+                    content_type='application/octet-stream',
+                )
+
+            file_upload = FileUpload.objects.create(
+                user=request.user,
+                project_id=kwargs['pk'],
+                file=uploaded_file,
+            )
+
+            chunked.status = ChunkedUpload.Status.COMPLETED
+            chunked.save(update_fields=['status', 'updated_at'])
+
+            os.remove(merged_path)
+            chunked.cleanup()
+
+            result = {
+                'upload_id': str(chunked.upload_id),
+                'file_upload_id': file_upload.id,
+                'filename': chunked.filename,
+                'status': 'completed',
+            }
+
+            if commit_to_project:
+                project = generics.get_object_or_404(
+                    Project.objects.for_user(request.user), pk=kwargs['pk']
+                )
+                tasks, found_formats, data_columns = FileUpload.load_tasks_from_uploaded_files(
+                    project, file_upload_ids=[file_upload.id]
+                )
+                result['task_count'] = len(tasks)
+                result['data_columns'] = data_columns
+
+            return Response(result, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            chunked.status = ChunkedUpload.Status.FAILED
+            chunked.save(update_fields=['status', 'updated_at'])
+            raise ValidationError(f'Failed to complete chunked upload: {str(e)}')
+
+
+@method_decorator(
+    name='post',
+    decorator=extend_schema(
+        tags=['Import'],
+        summary='Import uploads from server paths under LOCAL_FILES_DOCUMENT_ROOT',
+        description=(
+            'Copy files that already exist on the Label Studio host under `LOCAL_FILES_DOCUMENT_ROOT` into '
+            'this project\'s media upload folder (equivalent to uploading through the browser, without HTTP file data). '
+            'Disabled unless environment variable `ENABLE_SERVER_SIDE_LOCAL_IMPORT=1` is set. '
+            'Each string in `items` is a path relative to the document root; directories list contained files '
+            '(use `recursive` to walk subfolders). Response matches a synchronous `/import` with `commit_to_project=false`.'
+        ),
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'items': {
+                        'type': 'array',
+                        'items': {'type': 'string'},
+                        'description': 'Relative paths (files or directories) under LOCAL_FILES_DOCUMENT_ROOT',
+                    },
+                    'recursive': {
+                        'type': 'boolean',
+                        'description': 'If true, walk subdirectories when an item is a folder',
+                        'default': False,
+                    },
+                },
+                'required': ['items'],
+            },
+        },
+        responses={201: task_create_response_scheme[201]},
+    ),
+)
+class ImportFromLocalDocumentAPI(APIView):
+    permission_required = all_permissions.projects_change
+    permission_classes = api_settings.DEFAULT_PERMISSION_CLASSES + [ProjectImportPermission]
+    parser_classes = (JSONParser,)
+
+    def post(self, request, *args, **kwargs):
+        project = generics.get_object_or_404(Project.objects.for_user(self.request.user), pk=self.kwargs['pk'])
+        items = request.data.get('items')
+        recursive = bool_from_request(request.data, 'recursive', False)
+        start = time.time()
+        file_upload_ids, could_be_tasks_list = create_file_uploads_from_local_document_paths(
+            request.user, project, items, recursive=recursive
+        )
+        tasks, found_formats, data_columns = FileUpload.load_tasks_from_uploaded_files(project, file_upload_ids)
+        duration = time.time() - start
+        return Response(
+            {
+                'task_count': len(tasks),
+                'annotation_count': None,
+                'prediction_count': None,
+                'duration': duration,
+                'file_upload_ids': file_upload_ids,
+                'could_be_tasks_list': could_be_tasks_list,
+                'found_formats': found_formats,
+                'data_columns': data_columns,
+            },
+            status=status.HTTP_201_CREATED,
+        )

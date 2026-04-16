@@ -1,0 +1,30 @@
+title: Interactive Segmentation with Points and Polygons
+type: community
+group: Computer Vision
+order: 3
+image: /static/templates/semantic-segmentation-with-polygons.png
+details: |
+  <h1>Use point prompts to generate AI polygons</h1>
+  <dl>
+    <dt>Recommended For</dt>
+    <dd>Interactive segmentation, contour extraction, object outlining, review-and-correct workflows</dd>
+    <dt>How It Works</dt>
+    <dd>Select the smart keypoint tool, click on the image, and let the model return a polygon suggestion that you can refine.</dd>
+    <dt>Important</dt>
+    <dd>Enable Interactive preannotations in Machine Learning settings and connect an interactive ML backend.</dd>
+  </dl>
+config: |
+  <View>
+    <Header value="选择标签后，使用智能点提示生成多边形"/>
+    <Image name="image" value="$image" zoom="true" zoomControl="true"/>
+
+    <PolygonLabels name="label" toName="image" strokeWidth="3" pointSize="small" opacity="0.9">
+      <Label value="Airplane" background="#3b82f6"/>
+      <Label value="Car" background="#ef4444"/>
+    </PolygonLabels>
+
+    <KeyPointLabels name="prompt" toName="image" smart="true">
+      <Label value="Airplane" background="#3b82f6"/>
+      <Label value="Car" background="#ef4444"/>
+    </KeyPointLabels>
+  </View>

@@ -7,7 +7,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <meta name="author" content="Label Studio"/>
+  <meta name="author" content="{{ settings.APP_BROWSER_TITLE }}"/>
   <meta http-equiv="Content-Type" content="text/html;charset=utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=0.9, shrink-to-fit=no">
 
@@ -61,7 +61,7 @@
   </script>
 
   {% block page_labeling %}
-    <title>Label Studio</title>
+    <title>{{ settings.APP_BROWSER_TITLE }}</title>
     <link href="{{settings.HOSTNAME}}{% static 'images/favicon.ico' %}" rel="shortcut icon"/>
   {% endblock %}
 
@@ -167,6 +167,7 @@
 	email: "{{user.email}}",
 	customHotkeys: __customHotkeys,
 
+      is_superuser: {{user.is_superuser|yesno:"true,false"}},
       allow_newsletters: {% if user.allow_newsletters is None %}null{% else %}{{user.allow_newsletters|yesno:"true,false"}}{% endif %},
       {% if user.avatar %}
       avatar: "{{user.avatar_url|safe}}",
@@ -195,7 +196,7 @@
     },
 
     {% block app_more_settings %}
-      page_title: "Label Studio",
+      page_title: "{{ settings.APP_BROWSER_TITLE|escapejs }}",
       flags: {
         allow_organization_webhooks: {{settings.ALLOW_ORGANIZATION_WEBHOOKS|yesno:"true,false"}},
         storage_persistence: {{ settings.STORAGE_PERSISTENCE|yesno:"true,false" }},

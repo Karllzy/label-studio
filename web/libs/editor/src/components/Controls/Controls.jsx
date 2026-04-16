@@ -65,26 +65,28 @@ export default inject("store")(
       const canSkip = !skipDisabled || hasForceSkipPermission;
       const skipButtonDisabled = disabled || !canSkip;
 
-      const skipTooltip = canSkip ? "Cancel (skip) task: [ Ctrl+Space ]" : "This task cannot be skipped";
+      const skipTooltip = canSkip ? "跳过任务 [ Ctrl+Space ]" : "此任务不可跳过";
 
       const showInfoIcon = skipButtonDisabled && hasForceSkipPermission;
 
       if (store.hasInterface("skip")) {
+        const isReviewApprove = store.hasInterface("review-approve");
         skipButton = (
           <>
-            {showInfoIcon && (
-              <Tooltip title="Annotators and Reviewers will not be able to skip this task">
+            {showInfoIcon && !isReviewApprove && (
+              <Tooltip title="标注员与审核员将无法跳过此任务">
                 <IconInfoOutline width={20} height={20} className="text-neutral-content ml-auto cursor-pointer" />
               </Tooltip>
             )}
             <Button
-              disabled={skipButtonDisabled}
+              disabled={isReviewApprove ? disabled : skipButtonDisabled}
               look="danger"
-              onClick={canSkip ? store.skipTask : undefined}
-              tooltip={skipTooltip}
+              onClick={isReviewApprove || canSkip ? store.skipTask : undefined}
+              tooltip={isReviewApprove ? "驳回该条标注" : skipTooltip}
               className={`${styles.skip} ${skipButtonClassName}`}
             >
-              Skip {buttons.skip}
+              {isReviewApprove ? "驳回" : "跳过"}
+              {!isReviewApprove && buttons.skip}
             </Button>
           </>
         );
@@ -97,25 +99,54 @@ export default inject("store")(
             look="primary"
             icon={<CheckOutlined />}
             onClick={store.submitAnnotation}
-            tooltip="Save results: [ Ctrl+Enter ]"
+            tooltip="保存结果 [ Ctrl+Enter ]"
             className={`${styles.submit} ${submitButtonClassName}`}
           >
-            Submit {buttons.submit}
+            提交 {buttons.submit}
           </Button>
         );
       }
 
-      if ((userGenerate && sentUserGenerate) || (!userGenerate && store.hasInterface("update"))) {
+      const canUpdateReview = (userGenerate && sentUserGenerate) || (!userGenerate && store.hasInterface("update"));
+
+      if (store.hasInterface("review-approve")) {
+        updateButton = (
+          <>
+            <Button
+              disabled={disabled}
+              look="primary"
+              icon={<CheckOutlined />}
+              onClick={store.acceptAnnotation}
+              tooltip="无需修改，直接通过审核 [ Ctrl+Enter ]"
+              className={`${styles.submit} ${submitButtonClassName}`}
+            >
+              直接通过 {buttons.submit}
+            </Button>
+            {canUpdateReview && (
+              <Button
+                disabled={disabled}
+                look="outlined"
+                icon={<CheckCircleOutlined />}
+                onClick={store.updateAnnotation}
+                tooltip="保存您对标注的修改后再通过审核"
+                className={updateButtonClassName}
+              >
+                保存修改并通过 {buttons.update}
+              </Button>
+            )}
+          </>
+        );
+      } else if ((userGenerate && sentUserGenerate) || (!userGenerate && store.hasInterface("update"))) {
         updateButton = (
           <Button
             disabled={disabled}
             look="primary"
             icon={<CheckCircleOutlined />}
             onClick={store.updateAnnotation}
-            tooltip="Update this task: [ Alt+Enter ]"
+            tooltip="更新任务 [ Alt+Enter ]"
             className={updateButtonClassName}
           >
-            {sentUserGenerate || versions.result ? "Update" : "Submit"} {buttons.update}
+            {sentUserGenerate || versions.result ? "更新" : "提交"} {buttons.update}
           </Button>
         );
       }

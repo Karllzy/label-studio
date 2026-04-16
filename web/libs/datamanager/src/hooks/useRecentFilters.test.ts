@@ -2,7 +2,8 @@ import { renderHook, act } from "@testing-library/react";
 import { useRecentFilters, RECENT_VALUE_PREFIX } from "./useRecentFilters";
 
 const projectId = 99;
-const storageKey = `dm:recentFilterFields:${projectId}`;
+const testUserId = 9002;
+const storageKey = `dm:recentFilterFields:${projectId}:u${testUserId}`;
 
 const makeFilter = (id: string, title: string, target = "tasks") => ({
   id,
@@ -17,6 +18,10 @@ const availableFilters = [
 ];
 
 describe("useRecentFilters", () => {
+  beforeAll(() => {
+    (window as unknown as { APP_SETTINGS: { user: { id: number } } }).APP_SETTINGS = { user: { id: testUserId } };
+  });
+
   beforeEach(() => {
     localStorage.clear();
   });

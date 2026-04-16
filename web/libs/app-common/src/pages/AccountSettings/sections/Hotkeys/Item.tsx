@@ -144,21 +144,21 @@ export const HotkeyItem = ({ hotkey, onEdit, isEditing, onSave, onCancel, onTogg
             )}
             onClick={startRecordingKeys}
             onKeyDown={handleKeyPress}
-            aria-label="Click to record keyboard shortcut"
+            aria-label="点击录制快捷键"
           >
             {keyRecordingMode ? (
-              <span className="text-primary-content font-medium animate-pulse">Press keys now...</span>
+              <span className="text-primary-content font-medium animate-pulse">请按下快捷键...</span>
             ) : editedKey ? (
               <KeyboardKey>{editedKey}</KeyboardKey>
             ) : (
-              <span className="text-neutral-content-subtler">Click to set shortcut</span>
+              <span className="text-neutral-content-subtler">点击设置快捷键</span>
             )}
           </Button>
 
           {/* Action buttons */}
           <div className="flex flex-row gap-2">
             <Button variant="primary" onClick={handleSave} disabled={!editedKey || !!error}>
-              Apply
+              应用
             </Button>
             <Button variant="neutral" icon={<IconClose />} onClick={handleCancel} />
           </div>
@@ -178,7 +178,7 @@ export const HotkeyItem = ({ hotkey, onEdit, isEditing, onSave, onCancel, onTogg
         <UiToggle
           checked={hotkey.active}
           onChange={handleToggle}
-          aria-label={`${hotkey.active ? "Disable" : "Enable"} ${hotkey.label}`}
+          aria-label={`${hotkey.active ? "禁用" : "启用"}${hotkey.label}`}
         />
       </div>
 
@@ -189,7 +189,7 @@ export const HotkeyItem = ({ hotkey, onEdit, isEditing, onSave, onCancel, onTogg
       </div>
 
       {/* Current hotkey display (clickable to edit) */}
-      <Tooltip title="Click to edit hotkey">
+      <Tooltip title="点击编辑快捷键">
         <div
           className="flex items-center gap-2 cursor-pointer hover:opacity-80 hover:bg-primary-emphasis-subtle px-base py-base rounded-small"
           onClick={handleEdit}

@@ -1,45 +1,23 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useHistory } from "react-router";
 import { Button, Badge } from "@humansignal/ui";
-import {
-  IconWarningCircleFilled,
-  IconTerminal,
-  IconCode,
-  IconBook,
-  IconExternal,
-  IconCopyOutline,
-} from "@humansignal/icons";
+import { IconFileDownload, IconFolderOpen } from "@humansignal/icons";
+import { formatFileSize } from "@humansignal/core";
 import { Form, Input } from "../../components/Form";
 import { Modal } from "../../components/Modal/Modal";
 import { Space } from "../../components/Space/Space";
 import { useAPI } from "../../providers/ApiProvider";
 import { useFixedLocation, useParams } from "../../providers/RoutesProvider";
 import { cn } from "../../utils/bem";
-import { isDefined, copyText } from "../../utils/helpers";
+import { isDefined } from "../../utils/helpers";
 import "./ExportPage.prefix.css";
-
-// Community Edition exports run synchronously in a single HTTP request.
-// Large exports can exceed typical proxy timeouts, so we warn early and link to alternatives.
-const LARGE_EXPORT_TASK_THRESHOLD = 1000;
-const EXPORT_TIMEOUT_DOCS_URL = "https://labelstud.io/guide/export.html#Export-timeout-in-Community-Edition";
-const EXPORT_CONSOLE_DOCS_URL = "https://labelstud.io/guide/export.html#Export-using-console-command";
-const EXPORT_SNAPSHOT_SDK_URL = "https://api.labelstud.io/api-reference/api-reference/projects/exports/create";
-const ENTERPRISE_URL = "https://docs.humansignal.com/guide/label_studio_compare";
-
-// const formats = {
-//   json: 'JSON',
-//   csv: 'CSV',
-// };
 
 const downloadFile = (blob, filename) => {
   const link = document.createElement("a");
-
   link.href = URL.createObjectURL(blob);
   link.download = filename;
   link.click();
 };
-
-const wait = () => new Promise((resolve) => setTimeout(resolve, 5000));
 
 const isTimeoutLikeStatus = (status) => status === 408 || status === 502 || status === 504;
 
@@ -49,24 +27,42 @@ export const ExportPage = () => {
   const pageParams = useParams();
   const api = useAPI();
 
-  const [previousExports, setPreviousExports] = useState([]);
+  const [activeTab, setActiveTab] = useState("download");
   const [downloading, setDownloading] = useState(false);
   const [downloadingMessage, setDownloadingMessage] = useState(false);
   const [availableFormats, setAvailableFormats] = useState([]);
   const [currentFormat, setCurrentFormat] = useState("JSON");
-  const [projectTaskNumber, setProjectTaskNumber] = useState(null);
   const [exportIssue, setExportIssue] = useState(null);
 
-  /** @type {import('react').RefObject<Form>} */
+  // Folder export state
+  const [folderFormat, setFolderFormat] = useState("JSON");
+  const [targetPath, setTargetPath] = useState("");
+  const [includeResources, setIncludeResources] = useState(false);
+  const [folderExporting, setFolderExporting] = useState(false);
+  const [packagedExports, setPackagedExports] = useState([]);
+  const [folderError, setFolderError] = useState(null);
+
   const form = useRef();
+
+  const loadPackagedExports = useCallback(async () => {
+    if (!isDefined(pageParams.id)) return;
+    try {
+      const result = await api.callApi("packagedExports", {
+        params: { pk: pageParams.id },
+        errorFilter: () => true,
+      });
+      if (Array.isArray(result)) {
+        setPackagedExports(result);
+      }
+    } catch {
+      // ignore
+    }
+  }, [pageParams.id]);
 
   const proceedExport = async () => {
     setExportIssue(null);
     setDownloading(true);
-
-    const messageTimer = window.setTimeout(() => {
-      setDownloadingMessage(true);
-    }, 1000);
+    const messageTimer = window.setTimeout(() => setDownloadingMessage(true), 1000);
 
     try {
       const params = form.current.assembleFormData({
@@ -76,14 +72,9 @@ export const ExportPage = () => {
       });
 
       const response = await api.callApi("exportRaw", {
-        params: {
-          pk: pageParams.id,
-          ...params,
-        },
+        params: { pk: pageParams.id, ...params },
       });
 
-      // The API proxy can return `null` for certain network errors; treat it as timeout-like
-      // and show actionable guidance instead of a generic error.
       if (!response) {
         setExportIssue("timeout");
         return;
@@ -91,7 +82,6 @@ export const ExportPage = () => {
 
       if (response.ok) {
         const blob = await response.blob();
-
         downloadFile(blob, response.headers.get("filename"));
         return;
       }
@@ -109,43 +99,94 @@ export const ExportPage = () => {
     }
   };
 
+  const proceedFolderExport = async () => {
+    setFolderError(null);
+    setFolderExporting(true);
+    try {
+      const result = await api.callApi("createPackagedExport", {
+        params: { pk: pageParams.id },
+        body: {
+          export_format: folderFormat,
+          target_path: targetPath,
+          include_resources: includeResources,
+        },
+      });
+
+      if (result?.id) {
+        pollPackagedExport(result.id);
+      }
+    } catch (err) {
+      setFolderError(err?.message || "Export failed");
+      setFolderExporting(false);
+    }
+  };
+
+  const pollPackagedExport = useCallback(
+    async (exportId) => {
+      const poll = async () => {
+        try {
+          const detail = await api.callApi("packagedExportDetail", {
+            params: { pk: pageParams.id, exportPk: exportId },
+            errorFilter: () => true,
+          });
+          if (!detail) return;
+
+          if (detail.status === "completed" || detail.status === "failed") {
+            setFolderExporting(false);
+            if (detail.status === "failed") {
+              setFolderError("Export failed on server. Please check server logs.");
+            }
+            loadPackagedExports();
+            return;
+          }
+          setTimeout(poll, 3000);
+        } catch {
+          setFolderExporting(false);
+        }
+      };
+      poll();
+    },
+    [pageParams.id, loadPackagedExports],
+  );
+
+  const downloadPackage = useCallback(
+    async (exportPk) => {
+      const response = await api.callApi("downloadPackagedExportRaw", {
+        params: { pk: pageParams.id, exportPk },
+      });
+      if (response?.ok) {
+        const blob = await response.blob();
+        const filename = response.headers.get("filename") || `export_${exportPk}.zip`;
+        downloadFile(blob, filename);
+      }
+    },
+    [pageParams.id],
+  );
+
+  const deletePackage = useCallback(
+    async (exportPk) => {
+      await api.callApi("deletePackagedExport", {
+        params: { pk: pageParams.id, exportPk },
+      });
+      loadPackagedExports();
+    },
+    [pageParams.id, loadPackagedExports],
+  );
+
   useEffect(() => {
     if (isDefined(pageParams.id)) {
       let cancelled = false;
 
       api
-        .callApi("previousExports", {
-          params: {
-            pk: pageParams.id,
-          },
-        })
-        .then(({ export_files }) => {
-          if (!cancelled) setPreviousExports(export_files.slice(0, 1));
-        });
-
-      api
-        .callApi("exportFormats", {
-          params: {
-            pk: pageParams.id,
-          },
-        })
+        .callApi("exportFormats", { params: { pk: pageParams.id } })
         .then((formats) => {
           if (cancelled) return;
           setAvailableFormats(formats);
           setCurrentFormat(formats[0]?.name);
+          setFolderFormat(formats[0]?.name);
         });
 
-      // Fetch project metadata to show a proactive warning for large exports.
-      // This is best-effort and should not trigger global error UI if it fails.
-      api
-        .callApi("project", {
-          params: { pk: pageParams.id },
-          errorFilter: () => true,
-        })
-        .then((project) => {
-          if (cancelled) return;
-          setProjectTaskNumber(project?.task_number ?? null);
-        });
+      loadPackagedExports();
 
       return () => {
         cancelled = true;
@@ -158,49 +199,209 @@ export const ExportPage = () => {
       onHide={() => {
         const path = location.pathname.replace(ExportPage.path, "");
         const search = location.search;
-
         history.replace(`${path}${search !== "?" ? search : ""}`);
       }}
       title="Export data"
-      style={{ width: 720 }}
+      style={{ width: 760 }}
       closeOnClickOutside={false}
-      allowClose={!downloading}
-      // footer="Read more about supported export formats in the Documentation."
+      allowClose={!downloading && !folderExporting}
       visible
     >
       <div className={cn("export-page").toClassName()}>
-        <FormatInfo
-          availableFormats={availableFormats}
-          selected={currentFormat}
-          onClick={(format) => setCurrentFormat(format.name)}
-        />
+        <div className="flex gap-1 mb-base border-b border-neutral-border pb-tight">
+          <button
+            type="button"
+            className={`px-base py-tight rounded-t text-body-medium cursor-pointer border-none ${activeTab === "download" ? "bg-primary-surface text-primary-content font-medium" : "bg-transparent text-neutral-content-subtle"}`}
+            onClick={() => setActiveTab("download")}
+          >
+            Direct Download
+          </button>
+          <button
+            type="button"
+            className={`px-base py-tight rounded-t text-body-medium cursor-pointer border-none ${activeTab === "folder" ? "bg-primary-surface text-primary-content font-medium" : "bg-transparent text-neutral-content-subtle"}`}
+            onClick={() => setActiveTab("folder")}
+          >
+            Export to Folder
+          </button>
+        </div>
 
-        <ExportLargeProjectWarning taskCount={projectTaskNumber} />
-        {exportIssue === "timeout" && <ExportTimeoutGuidance projectId={pageParams.id} exportType={currentFormat} />}
+        {activeTab === "download" && (
+          <>
+            <FormatInfo
+              availableFormats={availableFormats}
+              selected={currentFormat}
+              onClick={(format) => setCurrentFormat(format.name)}
+            />
 
-        <Form ref={form}>
-          <Input type="hidden" name="exportType" value={currentFormat} />
-        </Form>
+            {exportIssue === "timeout" && (
+              <div className="p-tight bg-negative-background border border-negative-border-subtle rounded-md mt-tight">
+                <p className="text-negative-content font-medium">Export timed out</p>
+                <p className="text-body-small text-neutral-content-subtle mt-tighter">
+                  For large datasets, use the "Export to Folder" tab which runs asynchronously on the server.
+                </p>
+              </div>
+            )}
 
-        <div className={cn("export-page").elem("footer").toClassName()}>
-          {downloadingMessage && (
-            <div className={cn("export-page").elem("status-message").toClassName()}>
-              Files are being prepared. It might take long time.
+            <Form ref={form}>
+              <Input type="hidden" name="exportType" value={currentFormat} />
+            </Form>
+
+            <div className={cn("export-page").elem("footer").toClassName()}>
+              {downloadingMessage && (
+                <div className={cn("export-page").elem("status-message").toClassName()}>
+                  Files are being prepared. It might take a while.
+                </div>
+              )}
+              <Space style={{ width: "100%" }} spread>
+                <div />
+                <div className={cn("export-page").elem("actions").toClassName()}>
+                  <Button className="w-[135px]" onClick={proceedExport} waiting={downloading} aria-label="Export data">
+                    Export
+                  </Button>
+                </div>
+              </Space>
             </div>
-          )}
-          <Space style={{ width: "100%" }} spread>
-            <div className={cn("export-page").elem("recent").toClassName()}>
-              <a className="no-go" href={EXPORT_TIMEOUT_DOCS_URL} target="_blank" rel="noreferrer">
-                Having a timeout or trouble exporting large projects?
-              </a>
+          </>
+        )}
+
+        {activeTab === "folder" && (
+          <div className="flex flex-col gap-base">
+            <div className="text-body-medium text-neutral-content-subtle">
+              Export project data to a server folder and generate a downloadable zip package. Suitable for large
+              datasets.
             </div>
-            <div className={cn("export-page").elem("actions").toClassName()}>
-              <Button className="w-[135px]" onClick={proceedExport} waiting={downloading} aria-label="Export data">
-                Export
+
+            <div className="flex flex-col gap-tight">
+              <label className="text-label-small font-medium">Export format</label>
+              <div className="flex flex-wrap gap-tighter">
+                {availableFormats
+                  .filter((f) => !f.disabled)
+                  .map((format) => (
+                    <button
+                      key={format.name}
+                      type="button"
+                      className={`px-tight py-tighter rounded border text-body-small cursor-pointer ${
+                        folderFormat === format.name
+                          ? "border-primary-border bg-primary-surface text-primary-content font-medium"
+                          : "border-neutral-border bg-neutral-surface text-neutral-content"
+                      }`}
+                      onClick={() => setFolderFormat(format.name)}
+                    >
+                      {format.title}
+                    </button>
+                  ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-tighter">
+              <label className="text-label-small font-medium" htmlFor="target-path">
+                Target path (optional)
+              </label>
+              <input
+                id="target-path"
+                type="text"
+                className="border border-neutral-border rounded px-tight py-tighter text-body-medium"
+                placeholder="Leave empty for default export directory"
+                value={targetPath}
+                onChange={(e) => setTargetPath(e.target.value)}
+              />
+              <span className="text-body-smaller text-neutral-content-subtler">
+                Absolute server path. Exported files will be saved here.
+              </span>
+            </div>
+
+            <label className="flex items-center gap-tighter cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeResources}
+                onChange={(e) => setIncludeResources(e.target.checked)}
+              />
+              <span className="text-body-medium">Include original data files (images, audio, etc.)</span>
+            </label>
+
+            {folderError && (
+              <div className="p-tight bg-negative-background border border-negative-border-subtle rounded-md text-negative-content text-body-small">
+                {folderError}
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <Button onClick={proceedFolderExport} waiting={folderExporting} aria-label="Start export to folder">
+                {folderExporting ? "Exporting..." : "Export to Folder"}
               </Button>
             </div>
-          </Space>
-        </div>
+
+            {packagedExports.length > 0 && (
+              <div className="flex flex-col gap-tight mt-tight">
+                <div className="text-label-small font-medium">Previous packaged exports</div>
+                <div className="border border-neutral-border rounded overflow-hidden">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-neutral-surface-subtle text-body-smaller text-neutral-content-subtle">
+                        <th className="text-left px-tight py-tighter font-medium">Format</th>
+                        <th className="text-left px-tight py-tighter font-medium">Status</th>
+                        <th className="text-left px-tight py-tighter font-medium">Size</th>
+                        <th className="text-left px-tight py-tighter font-medium">Date</th>
+                        <th className="text-right px-tight py-tighter font-medium">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {packagedExports.map((pe) => (
+                        <tr key={pe.id} className="border-t border-neutral-border">
+                          <td className="px-tight py-tighter text-body-small">{pe.export_format}</td>
+                          <td className="px-tight py-tighter">
+                            <Badge
+                              variant={
+                                pe.status === "completed"
+                                  ? "positive"
+                                  : pe.status === "failed"
+                                    ? "negative"
+                                    : "primary"
+                              }
+                              size="small"
+                            >
+                              {pe.status}
+                            </Badge>
+                          </td>
+                          <td className="px-tight py-tighter text-body-small text-neutral-content-subtle">
+                            {pe.zip_size ? formatFileSize(pe.zip_size) : "-"}
+                          </td>
+                          <td className="px-tight py-tighter text-body-small text-neutral-content-subtle">
+                            {pe.created_at ? new Date(pe.created_at).toLocaleString() : "-"}
+                          </td>
+                          <td className="px-tight py-tighter text-right">
+                            <div className="flex gap-tighter justify-end">
+                              {pe.status === "completed" && (
+                                <Button
+                                  size="smaller"
+                                  variant="primary"
+                                  look="outlined"
+                                  onClick={() => downloadPackage(pe.id)}
+                                  aria-label="Download"
+                                >
+                                  <IconFileDownload className="w-4 h-4" />
+                                </Button>
+                              )}
+                              <Button
+                                size="smaller"
+                                variant="negative"
+                                look="outlined"
+                                onClick={() => deletePackage(pe.id)}
+                                aria-label="Delete"
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </Modal>
   );
@@ -209,9 +410,7 @@ export const ExportPage = () => {
 const FormatInfo = ({ availableFormats, selected, onClick }) => {
   return (
     <div className={cn("formats").toClassName()}>
-      <div className={cn("formats").elem("info").toClassName()}>
-        You can export dataset in one of the following formats:
-      </div>
+      <div className={cn("formats").elem("info").toClassName()}>Select an export format:</div>
       <div className={cn("formats").elem("list").toClassName()}>
         {availableFormats.map((format) => (
           <div
@@ -230,16 +429,10 @@ const FormatInfo = ({ availableFormats, selected, onClick }) => {
 
               <Space size="small">
                 {format.tags?.map?.((tag, index) => {
-                  // Map tag text to badge variant
                   const tagLower = tag?.toLowerCase() || "";
                   let variant = "primary";
-                  if (tagLower === "enterprise" || tagLower.includes("enterprise")) {
-                    variant = "gradient";
-                  } else if (tagLower === "beta") {
-                    variant = "plum";
-                  } else if (tagLower === "new" || tagLower.includes("new")) {
-                    variant = "positive";
-                  }
+                  if (tagLower === "beta") variant = "plum";
+                  else if (tagLower === "new" || tagLower.includes("new")) variant = "positive";
 
                   return (
                     <Badge key={index} variant={variant} size="small">
@@ -256,147 +449,9 @@ const FormatInfo = ({ availableFormats, selected, onClick }) => {
           </div>
         ))}
       </div>
-      <div className={cn("formats").elem("feedback").toClassName()}>
-        Can't find an export format?
-        <br />
-        Please let us know in{" "}
-        <a className="no-go" href="https://slack.labelstud.io/?source=product-export" target="_blank" rel="noreferrer">
-          Slack
-        </a>{" "}
-        or submit an issue to the{" "}
-        <a
-          className="no-go"
-          href="https://github.com/HumanSignal/label-studio-converter/issues"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Repository
-        </a>
-      </div>
     </div>
   );
 };
 
 ExportPage.path = "/export";
 ExportPage.modal = true;
-
-const ExportLargeProjectWarning = ({ taskCount }) => {
-  if (!Number.isFinite(taskCount) || taskCount < LARGE_EXPORT_TASK_THRESHOLD) return null;
-
-  return (
-    <div className={cn("export-page").elem("warning").toClassName()}>
-      <div className={cn("export-page").elem("warning-title").toClassName()}>
-        Large project detected ({taskCount.toLocaleString()} tasks)
-      </div>
-      <div className={cn("export-page").elem("warning-body").toClassName()}>
-        To avoid potential timeouts during large dataset exports in the Community Edition, use the{" "}
-        <a className="no-go" href={EXPORT_TIMEOUT_DOCS_URL} target="_blank" rel="noreferrer">
-          CLI/SDK export options
-        </a>{" "}
-        or consider{" "}
-        <a className="no-go" href={ENTERPRISE_URL} target="_blank" rel="noreferrer">
-          Enterprise
-        </a>{" "}
-        for background exports at scale.
-      </div>
-    </div>
-  );
-};
-
-const ExportTimeoutGuidance = ({ projectId, exportType }) => {
-  const cliCommand = `label-studio export ${projectId} ${exportType} --export-path=<output-path>`;
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(() => {
-    copyText(cliCommand);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [cliCommand]);
-
-  return (
-    <div className={cn("export-page").elem("timeout").toClassName()}>
-      <div className={cn("export-page").elem("timeout-header").toClassName()}>
-        <IconWarningCircleFilled className={cn("export-page").elem("timeout-icon").toClassName()} />
-        <div className={cn("export-page").elem("timeout-title").toClassName()}>Export timed out</div>
-      </div>
-      <div className={cn("export-page").elem("timeout-body").toClassName()}>
-        This export is processed synchronously in the Community Edition UI and can exceed typical reverse-proxy timeouts
-        (often around 90 seconds) for large datasets.
-      </div>
-
-      <div className={cn("export-page").elem("timeout-actions").toClassName()}>
-        <div className={cn("export-page").elem("timeout-actions-title").toClassName()}>Recommended options:</div>
-        <ul className={cn("export-page").elem("timeout-actions-list").toClassName()}>
-          <li>
-            <div className={cn("export-page").elem("timeout-action-item").toClassName()}>
-              <IconTerminal className={cn("export-page").elem("timeout-action-icon").toClassName()} />
-              <div className={cn("export-page").elem("timeout-action-content").toClassName()}>
-                <span>
-                  Export using the{" "}
-                  <a className="no-go" href={EXPORT_CONSOLE_DOCS_URL} target="_blank" rel="noreferrer">
-                    console command
-                    <IconExternal className={cn("export-page").elem("timeout-link-icon").toClassName()} />
-                  </a>
-                  :
-                </span>
-                <div className={cn("export-page").elem("timeout-code-wrapper").toClassName()}>
-                  <pre className={cn("export-page").elem("timeout-code").toClassName()}>
-                    <code>{cliCommand}</code>
-                  </pre>
-                  <button
-                    type="button"
-                    className={cn("export-page").elem("timeout-copy-button").toClassName()}
-                    onClick={handleCopy}
-                    aria-label="Copy command"
-                    title={copied ? "Copied!" : "Copy command"}
-                  >
-                    <IconCopyOutline className={cn("export-page").elem("timeout-copy-icon").toClassName()} />
-                    {copied && (
-                      <span className={cn("export-page").elem("timeout-copy-text").toClassName()}>Copied</span>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </li>
-          <li>
-            <div className={cn("export-page").elem("timeout-action-item").toClassName()}>
-              <IconCode className={cn("export-page").elem("timeout-action-icon").toClassName()} />
-              <div className={cn("export-page").elem("timeout-action-content").toClassName()}>
-                Use{" "}
-                <a className="no-go" href={EXPORT_SNAPSHOT_SDK_URL} target="_blank" rel="noreferrer">
-                  export snapshots via the SDK
-                  <IconExternal className={cn("export-page").elem("timeout-link-icon").toClassName()} />
-                </a>{" "}
-                to create and download a snapshot without relying on a single UI request.
-              </div>
-            </div>
-          </li>
-          <li>
-            <div className={cn("export-page").elem("timeout-action-item").toClassName()}>
-              <IconWarningCircleFilled className={cn("export-page").elem("timeout-action-icon").toClassName()} />
-              <div className={cn("export-page").elem("timeout-action-content").toClassName()}>
-                For large-scale exports in the UI, consider{" "}
-                <a className="no-go" href={ENTERPRISE_URL} target="_blank" rel="noreferrer">
-                  Label Studio Enterprise
-                  <IconExternal className={cn("export-page").elem("timeout-link-icon").toClassName()} />
-                </a>{" "}
-                since it is designed for large-scale projects and asynchronous exports.
-              </div>
-            </div>
-          </li>
-        </ul>
-        <div className={cn("export-page").elem("timeout-footer").toClassName()}>
-          <IconBook className={cn("export-page").elem("timeout-footer-icon").toClassName()} />
-          <span>
-            More details in the documentation:{" "}
-            <a className="no-go" href={EXPORT_TIMEOUT_DOCS_URL} target="_blank" rel="noreferrer">
-              Export timeout in Community Edition
-              <IconExternal className={cn("export-page").elem("timeout-link-icon").toClassName()} />
-            </a>
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-};

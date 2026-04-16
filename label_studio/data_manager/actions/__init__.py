@@ -35,7 +35,12 @@ class DataManagerAction(TypedDict):
 
 
 def check_action_permission(user, action, project):
-    """Actions must have permissions, if only one is in the user role then the action is allowed"""
+    """Return True if the user has every permission listed on the action for this project.
+
+    Project-scoped rules (e.g. ``projects.view``, ``tasks.change``) need the ``project``
+    instance; otherwise ``has_perm(perm)`` is evaluated with no object and annotators
+    fail even though they are project members.
+    """
     if 'permission' not in action:
         logger.error('Action must have "permission" field: %s', str(action))
         return False
@@ -44,7 +49,7 @@ def check_action_permission(user, action, project):
     if not isinstance(permissions, list):
         permissions = [permissions]
     for permission in permissions:
-        if not user.has_perm(permission):
+        if not user.has_perm(permission, project):
             return False
     return True
 

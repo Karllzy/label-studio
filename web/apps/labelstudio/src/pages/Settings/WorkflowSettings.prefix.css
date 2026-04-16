@@ -1,0 +1,58 @@
+.workflow-settings {
+    & h3 {
+        font-size: 18px;
+        font-weight: 600;
+        margin: 0 0 8px 0;
+    }
+
+    &__description {
+        font-size: 13px;
+        color: var(--sand_500);
+        margin-bottom: 24px;
+    }
+
+    &__section {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        margin-bottom: 24px;
+    }
+
+    &__field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+
+        & > label:not(&__checkbox-label) {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--sand_600);
+        }
+
+        & select {
+            padding: 8px 12px;
+            border: 1px solid var(--sand_300);
+            border-radius: 4px;
+            font-size: 14px;
+            background: var(--sand_0);
+            max-width: 500px;
+        }
+    }
+
+    &__checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        cursor: pointer;
+
+        & input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+        }
+    }
+
+    &__save {
+        padding-top: 8px;
+    }
+}

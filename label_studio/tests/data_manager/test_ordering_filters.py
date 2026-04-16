@@ -105,6 +105,31 @@ def test_views_ordering(ordering, element_index, undefined, business_client, pro
 
 
 @pytest.mark.django_db
+def test_predictions_score_falls_back_when_project_model_version_has_no_matching_predictions(
+    business_client, project_id
+):
+    project = Project.objects.get(pk=project_id)
+    project.model_version = 'sam3'
+    project.save(update_fields=['model_version'])
+
+    task_id = make_task({'data': {'text': 'task with mismatched prediction version'}}, project).id
+    make_prediction(
+        {
+            'result': [{'from_name': 'test_batch_predictions', 'to_name': 'text', 'value': {'choices': ['class_A']}}],
+            'score': 0.5,
+            'model_version': 'sam3.1_multiplex',
+        },
+        task_id,
+    )
+
+    response = business_client.get('/api/tasks', {'project': project.id})
+    assert response.status_code == 200, response.content
+
+    task = next(task for task in response.json()['tasks'] if task['id'] == task_id)
+    assert task['predictions_score'] == 0.5
+
+
+@pytest.mark.django_db
 def test_views_ordering_task_state():
     """
     This test verifies that ordering by task state orders by the state progression, and not in alphabetical order.

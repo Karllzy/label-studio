@@ -125,7 +125,7 @@ class App extends Component {
           variant="positive"
           icon={<IconCheck />}
           title={messages.NO_NEXT_TASK}
-          description="All tasks in the queue have been completed"
+          description="当前队列中的所有任务都已处理完成"
           actions={
             store.taskHistory.length > 0 ? (
               <Button
@@ -134,7 +134,7 @@ class App extends Component {
                 aria-label="Previous task"
                 data-testid="editor-empty-queue-previous-task"
               >
-                Go to Previous Task
+                返回上一条任务
               </Button>
             ) : undefined
           }

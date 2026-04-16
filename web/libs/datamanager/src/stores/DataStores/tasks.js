@@ -1,6 +1,7 @@
 import { flow, getRoot, getSnapshot, types } from "mobx-state-tree";
 import { DataStore, DataStoreItem } from "../../mixins/DataStore";
 import { getAnnotationSnapshot } from "../../sdk/lsf-utils";
+import { guidGenerator } from "../../utils/random";
 import { isDefined } from "../../utils/utils";
 import { Assignee } from "../Assignee";
 import { DynamicModel, registerModel } from "../DynamicModel";
@@ -260,6 +261,9 @@ export const create = (columns) => {
             ...snapshot,
             source: JSON.stringify(taskData),
           });
+
+          // Bust any list-level memoization keyed only on task ids (virtual table, etc.)
+          self.updated = guidGenerator();
         }
 
         return task;

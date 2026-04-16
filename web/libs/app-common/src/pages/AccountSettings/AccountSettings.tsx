@@ -26,29 +26,26 @@ const AccountSettingsSection = () => {
 
   const resolvedSections = useMemo(() => {
     return settings.data && !("error" in settings.data) ? accountSettingsSections(settings.data, permissions) : [];
-  }, [settings.data, user]);
+  }, [settings.data, user, permissions]);
 
   const currentSection = useMemo(
     () => resolvedSections.find((section) => section.id === sectionId),
     [resolvedSections, sectionId],
   );
 
-  // Update page title to reflect the current section
   const pageTitleText = useMemo(() => {
-    if (!currentSection) return "My Account";
+    if (!currentSection) return "我的账号";
 
-    // If title is a string, use it directly
     if (typeof currentSection.title === "string") {
-      return createTitleFromSegments([currentSection.title, "My Account"]);
+      return createTitleFromSegments([currentSection.title, "我的账号"]);
     }
 
-    // For non-string titles (like JSX elements), derive from the section ID
     const titleFromId = currentSection.id
       .split("-")
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(" ");
 
-    return createTitleFromSegments([titleFromId, "My Account"]);
+    return createTitleFromSegments([titleFromId, "我的账号"]);
   }, [currentSection]);
 
   useUpdatePageTitle(pageTitleText);
@@ -96,7 +93,7 @@ const AccountSettingsPage = () => {
   const { user, permissions } = useAuth();
   const resolvedSections = useMemo(() => {
     return settings.data && !("error" in settings.data) ? accountSettingsSections(settings.data, permissions) : [];
-  }, [settings.data, user]);
+  }, [settings.data, user, permissions]);
 
   const menuItems = useMemo(
     () =>
@@ -123,12 +120,12 @@ const AccountSettingsPage = () => {
   );
 };
 
-AccountSettingsPage.title = "My Account";
+AccountSettingsPage.title = "我的账号";
 AccountSettingsPage.path = "/user/account";
 AccountSettingsPage.exact = false;
 AccountSettingsPage.routes = () => [
   {
-    title: () => "My Account",
+    title: () => "我的账号",
     path: "/account",
     component: () => <Redirect to={AccountSettingsPage.path} />,
   },

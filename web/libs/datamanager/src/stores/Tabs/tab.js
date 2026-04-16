@@ -14,6 +14,7 @@ const THRESHOLD_MIN = 0;
 const THRESHOLD_MIN_DIFF = 0.001;
 
 import { validateFilterSnapshot } from "./filter_snapshot_utils";
+import { dmUserStorageKey } from "../../utils/dm-user-storage";
 
 export const Tab = types
   .model("View", {
@@ -56,7 +57,9 @@ export const Tab = types
       .replace("px", "")
       .trim();
 
-    const labelingTableWidth = Number.parseInt(localStorage.getItem("labelingTableWidth") ?? defaultWidth ?? 200);
+    const labelingTableWidth = Number.parseInt(
+      localStorage.getItem(dmUserStorageKey("labelingTableWidth")) ?? defaultWidth ?? 200,
+    );
 
     return {
       labelingTableWidth,
@@ -333,7 +336,7 @@ export const Tab = types
 
     setLabelingTableWidth(width) {
       self.labelingTableWidth = width;
-      localStorage.setItem("labelingTableWidth", self.labelingTableWidth);
+      localStorage.setItem(dmUserStorageKey("labelingTableWidth"), String(self.labelingTableWidth));
     },
 
     setGridWidth(width) {
@@ -578,7 +581,7 @@ export const Tab = types
 
           // Save the virtual tab of the project to local storage to persist between page navigations
           if (projectId) {
-            localStorage.setItem(`virtual-tab-${projectId}`, JSON.stringify(snapshot));
+            localStorage.setItem(dmUserStorageKey(`virtual-tab-${projectId}`), JSON.stringify(snapshot));
           }
 
           History.navigate({ tab: self.key }, true);

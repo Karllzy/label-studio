@@ -352,17 +352,18 @@ export default types
       /**
        * Hotkey for submit
        */
-      if (self.hasInterface("submit", "update", "review")) {
+      if (self.hasInterface("submit", "update", "review", "review-approve")) {
         hotkeys.addNamed("annotation:submit", () => {
           const annotationStore = self.annotationStore;
           const shouldDenyEmptyAnnotation = self.hasInterface("annotations:deny-empty");
           const entity = annotationStore.selected;
           const areResultsEmpty = entity.results.length === 0;
-          const isReview = self.hasInterface("review") || entity.canBeReviewed;
+          const isReview = self.hasInterface("review") || self.hasInterface("review-approve");
           const isUpdate = !isReview && isDefined(entity.pk);
           // no changes were made over previously submitted version — no drafts, no pending changes
           const noChanges = !entity.history.canUndo && !entity.draftId;
-          const isUpdateDisabled = isFF(FF_REVIEWER_FLOW) && isUpdate && noChanges;
+          const isUpdateDisabled =
+            isFF(FF_REVIEWER_FLOW) && isUpdate && noChanges && !self.hasInterface("review-approve");
 
           if (shouldDenyEmptyAnnotation && areResultsEmpty) return;
           if (annotationStore.viewingAll) return;
@@ -391,7 +392,7 @@ export default types
       /**
        * Hotkey for skip task
        */
-      if (self.hasInterface("skip", "review")) {
+      if (self.hasInterface("skip", "review", "review-approve")) {
         hotkeys.addNamed("annotation:skip", () => {
           if (self.annotationStore.viewingAll) return;
 
@@ -399,7 +400,7 @@ export default types
 
           entity?.submissionInProgress();
 
-          if (self.hasInterface("review")) {
+          if (self.hasInterface("review") || self.hasInterface("review-approve")) {
             self.rejectAnnotation();
           } else {
             self.skipTask();
@@ -720,16 +721,16 @@ export default types
         const entity = self.annotationStore.selected;
 
         entity.beforeSend();
-        if (!entity.validate()) return;
+        // changes in current sessions or saved draft should send the result along with approval
+        const isDirty = entity.history.canUndo || entity.versions.draft;
+        const skipValidateForDirectApprove = self.hasInterface("review-approve") && !isDirty;
+        if (!skipValidateForDirectApprove && !entity.validate()) return;
         if (isFF(FF_CUSTOM_SCRIPT)) {
           const allowedToSave = await getEnv(self).events.invoke("beforeSaveAnnotation", self, entity, {
             event: "acceptAnnotation",
           });
           if (allowedToSave && allowedToSave.some((x) => x === false)) return;
         }
-
-        // changes in current sessions or saved draft should send the result along with approval
-        const isDirty = entity.history.canUndo || entity.versions.draft;
 
         entity.dropDraft();
         await getEnv(self).events.invoke("acceptAnnotation", self, { isDirty, entity });
@@ -744,15 +745,15 @@ export default types
         const entity = self.annotationStore.selected;
 
         entity.beforeSend();
-        if (!entity.validate()) return;
+        const isDirty = entity.history.canUndo;
+        const skipValidateForDirectReject = self.hasInterface("review-approve") && !isDirty;
+        if (!skipValidateForDirectReject && !entity.validate()) return;
         if (isFF(FF_CUSTOM_SCRIPT)) {
           const allowedToSave = await getEnv(self).events.invoke("beforeSaveAnnotation", self, entity, {
             event: "rejectAnnotation",
           });
           if (allowedToSave && allowedToSave.some((x) => x === false)) return;
         }
-
-        const isDirty = entity.history.canUndo;
 
         entity.dropDraft();
         await getEnv(self).events.invoke("rejectAnnotation", self, { isDirty, entity, comment });

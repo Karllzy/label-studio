@@ -18,7 +18,7 @@ const Webhook = () => {
   const api = useAPI();
   const { project } = useProject();
 
-  useUpdatePageTitle(createTitleFromSegments([project?.title, "Webhooks Settings"]));
+  useUpdatePageTitle(createTitleFromSegments([project?.title, "Webhook 设置"]));
 
   const projectId = useMemo(() => {
     if (history.location.pathname.startsWith("/projects")) {

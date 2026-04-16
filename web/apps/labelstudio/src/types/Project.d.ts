@@ -97,4 +97,18 @@ declare type APIProject = {
    * Number of finished tasks
    */
   queue_done: number;
+
+  /** Project member role for the current user: AD / AN / RE, or omitted if not a member */
+  my_project_role?: string | null;
+
+  /** Whether the current user is the project owner (created_by) */
+  is_project_owner?: boolean;
+
+  can_review?: boolean;
+  can_delete_tasks?: boolean;
+  can_assign_tasks?: boolean;
+  can_delete_project?: boolean;
+
+  require_review?: boolean;
+  task_assignment_mode?: string;
 };

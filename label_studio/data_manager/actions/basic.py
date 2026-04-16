@@ -13,6 +13,7 @@ from django.conf import settings
 from projects.models import Project
 from tasks.functions import update_tasks_counters
 from tasks.models import Annotation, AnnotationDraft, Prediction, Task
+from tasks.pending_review_sync import refresh_task_pending_review_flags
 from users.models import User
 from webhooks.models import WebhookAction
 from webhooks.utils import emit_webhooks_for_instance
@@ -103,6 +104,7 @@ def delete_tasks_annotations(project, queryset, **kwargs):
     count = annotations.count()
     annotations.delete()
     drafts.delete()  # since task-level annotation drafts will not have been deleted by CASCADE
+    refresh_task_pending_review_flags(*real_task_ids)
     emit_webhooks_for_instance(project.organization, project, WebhookAction.ANNOTATIONS_DELETED, annotations_ids)
     request = kwargs['request']
 

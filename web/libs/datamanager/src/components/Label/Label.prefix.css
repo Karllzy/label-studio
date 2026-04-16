@@ -50,6 +50,27 @@
     justify-content: space-between;
   }
 
+  &__progress {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    color: var(--color-neutral-content-subtle);
+  }
+
+  &__progress-main {
+    color: var(--color-neutral-content);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 20px;
+    white-space: nowrap;
+  }
+
+  &__progress-sub {
+    font-size: 12px;
+    line-height: 18px;
+    white-space: nowrap;
+  }
+
   &__table {
     z-index: 2;
     display: flex;

@@ -230,6 +230,8 @@ const HtxEllipseView = ({ item, setShapeRef }) => {
   const regionStyles = useRegionStyles(item);
   const stage = item.parent?.stageRef;
   const { suggestion } = useContext(ImageViewContext) ?? {};
+  const selectedTool = item.parent?.getToolsManager?.().findSelectedTool?.();
+  const isDrawingToolActive = !!selectedTool?.isDrawingTool;
 
   if (!item.parent) return null;
   if (!item.inViewPort) return null;
@@ -319,7 +321,7 @@ const HtxEllipseView = ({ item, setShapeRef }) => {
           item.onClickRegion(e);
         }}
         draggable={!item.isReadOnly()}
-        listening={!suggestion}
+        listening={!suggestion && !isDrawingToolActive}
       />
       <LabelOnEllipse item={item} color={regionStyles.strokeColor} strokewidth={regionStyles.strokeWidth} />
     </Fragment>

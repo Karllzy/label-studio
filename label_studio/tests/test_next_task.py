@@ -537,6 +537,45 @@ def test_active_learning_with_uploaded_predictions(business_client):
     assert get_next_task_id_and_complete_it() == 'score = 0.5'
 
 
+@pytest.mark.django_db
+def test_active_learning_falls_back_to_available_prediction_versions(business_client):
+    config = dict(
+        title='Test',
+        is_published=True,
+        sampling=Project.UNCERTAINTY,
+        model_version='sam3',
+        label_config="""
+            <View>
+              <Text name="location" value="$text"></Text>
+              <Choices name="text_class" toName="location" choice="single">
+                <Choice value="class_A"></Choice>
+                <Choice value="class_B"></Choice>
+              </Choices>
+            </View>""",
+    )
+    project = make_project(config, business_client.user, use_ml_backend=False)
+    result = [{'from_name': 'text_class', 'to_name': 'location', 'type': 'choices', 'value': {'choices': ['class_A']}}]
+    tasks = [
+        {
+            'data': {'text': 'score = 0.5'},
+            'predictions': [{'result': result, 'score': 0.5, 'model_version': 'sam3.1_multiplex'}],
+        },
+        {
+            'data': {'text': 'score = 0.1'},
+            'predictions': [{'result': result, 'score': 0.1, 'model_version': 'sam3.1_multiplex'}],
+        },
+    ]
+
+    r = business_client.post(f'/api/projects/{project.id}/tasks/bulk/', data=json.dumps(tasks), content_type='application/json')
+    assert r.status_code == 201
+
+    r = business_client.get(f'/api/projects/{project.id}/next')
+    assert r.status_code == 200
+
+    task = json.loads(r.content)
+    assert task['data']['text'] == 'score = 0.1'
+
+
 @pytest.mark.skipif(not redis_healthcheck(), reason='Multi user locks only supported with redis enabled')
 @pytest.mark.parametrize('sampling', (Project.UNIFORM, Project.UNCERTAINTY, Project.SEQUENCE))
 @pytest.mark.django_db

@@ -69,6 +69,110 @@ def check_request_files_size(files):
     check_tasks_max_file_size(total)
 
 
+def resolve_safe_path_under_document_root(relative_path):
+    """Resolve a user-supplied relative path strictly under LOCAL_FILES_DOCUMENT_ROOT."""
+    if not settings.ENABLE_SERVER_SIDE_LOCAL_IMPORT:
+        raise ValidationError(
+            'Server-side local import is disabled. Set environment variable ENABLE_SERVER_SIDE_LOCAL_IMPORT=1 to enable.'
+        )
+    if not settings.ENABLE_LOCAL_FILES_STORAGE:
+        raise ValidationError('Local files storage is disabled.')
+    rel = (relative_path or '').strip()
+    if not rel:
+        raise ValidationError('Path is empty.')
+    normalized = rel.replace('/', os.sep)
+    if os.path.isabs(normalized):
+        raise ValidationError('Path must be relative to LOCAL_FILES_DOCUMENT_ROOT.')
+    rel_norm = os.path.normpath(normalized)
+    if rel_norm.startswith('..' + os.sep) or rel_norm == '..':
+        raise ValidationError('Invalid path.')
+    root = os.path.realpath(settings.LOCAL_FILES_DOCUMENT_ROOT)
+    full = os.path.realpath(os.path.join(root, rel_norm))
+    try:
+        common = os.path.commonpath([full, root])
+    except ValueError:
+        raise ValidationError('Invalid path.')
+    if common != root:
+        raise ValidationError('Path must stay under LOCAL_FILES_DOCUMENT_ROOT.')
+    return full
+
+
+def collect_files_for_server_side_import(items, recursive):
+    """Expand path/directory entries to a list of absolute file paths with allowed extensions."""
+    if not isinstance(items, list) or not items:
+        raise ValidationError('"items" must be a non-empty list of strings.')
+    max_entries = settings.SERVER_SIDE_LOCAL_IMPORT_MAX_PATH_ENTRIES
+    if len(items) > max_entries:
+        raise ValidationError(f'Too many path entries (max {max_entries}).')
+    max_files = settings.SERVER_SIDE_LOCAL_IMPORT_MAX_FILES
+    collected = []
+    seen = set()
+    for raw in items:
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValidationError('Each item must be a non-empty string path.')
+        full = resolve_safe_path_under_document_root(raw)
+        if os.path.isfile(full):
+            candidates = [full]
+        elif os.path.isdir(full):
+            if recursive:
+                candidates = []
+                for dirpath, _dirnames, filenames in os.walk(full):
+                    for name in filenames:
+                        candidates.append(os.path.join(dirpath, name))
+            else:
+                candidates = []
+                try:
+                    for name in sorted(os.listdir(full)):
+                        p = os.path.join(full, name)
+                        if os.path.isfile(p):
+                            candidates.append(p)
+                except OSError as e:
+                    raise ValidationError(f'Cannot read directory: {extract_message(e)}')
+        else:
+            raise ValidationError(f'Path not found: {raw}')
+        for abs_path in candidates:
+            if abs_path in seen:
+                continue
+            _, ext = os.path.splitext(abs_path)
+            if ext.lower() not in settings.SUPPORTED_EXTENSIONS:
+                continue
+            if not os.path.isfile(abs_path):
+                continue
+            if len(collected) >= max_files:
+                raise ValidationError(f'Exceeded maximum of {max_files} files per request.')
+            seen.add(abs_path)
+            collected.append(abs_path)
+    if not collected:
+        raise ValidationError('No supported files found for the given paths.')
+    return collected
+
+
+def create_file_uploads_from_local_document_paths(user, project, items, recursive=False):
+    """Copy files from LOCAL_FILES_DOCUMENT_ROOT into this project's upload directory and create FileUpload rows."""
+    paths = collect_files_for_server_side_import(items, recursive)
+    total_size = 0
+    for p in paths:
+        try:
+            total_size += os.path.getsize(p)
+        except OSError as e:
+            raise ValidationError(f'Cannot read file size: {extract_message(e)}')
+    check_tasks_max_file_size(total_size)
+
+    file_upload_ids = []
+    could_be_tasks_list = False
+    for abs_path in paths:
+        filename = os.path.basename(abs_path)
+        with open(abs_path, 'rb') as fp:
+            data = fp.read()
+        uploaded = SimpleUploadedFile(filename, data)
+        file_upload = create_file_upload(user, project, uploaded)
+        if file_upload.format_could_be_tasks_list:
+            could_be_tasks_list = True
+        file_upload_ids.append(file_upload.id)
+    logger.debug('server-side local import: %s file uploads', file_upload_ids)
+    return file_upload_ids, could_be_tasks_list
+
+
 def create_file_upload(user, project, file):
     instance = FileUpload(user=user, project=project, file=file)
     if settings.SVG_SECURITY_CLEANUP:

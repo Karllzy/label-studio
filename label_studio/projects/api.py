@@ -9,6 +9,7 @@ from core.filters import ListFilter
 from core.label_config import config_essential_data_has_changed
 from core.mixins import GetParentObjectMixin
 from core.permissions import ViewClassPermission, all_permissions
+from projects.utils.queryset import projects_for_user
 from core.redis import start_job_async_or_sync
 from core.utils.common import paginator, paginator_help, temporary_disconnect_all_signals
 from core.utils.exceptions import LabelStudioDatabaseException, ProjectExistException
@@ -43,7 +44,7 @@ from projects.serializers import (
     ProjectSummarySerializer,
 )
 from rest_framework import filters, generics, status
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.exceptions import ValidationError as RestValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -176,7 +177,7 @@ class ProjectListAPI(generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
         fields = serializer.validated_data.get('include')
         filter = serializer.validated_data.get('filter')
-        projects = Project.objects.filter(organization=self.request.user.active_organization).order_by(
+        projects = projects_for_user(self.request.user).order_by(
             F('pinned_at').desc(nulls_last=True), '-created_at'
         )
         if filter in ['pinned_only', 'exclude_pinned']:
@@ -198,13 +199,19 @@ class ProjectListAPI(generics.ListCreateAPIView):
 
     def perform_create(self, ser):
         try:
-            ser.save(organization=self.request.user.active_organization)
+            project = ser.save(organization=self.request.user.active_organization)
         except IntegrityError as e:
             if str(e) == 'UNIQUE constraint failed: project.title, project.created_by_id':
                 raise ProjectExistException(
                     'Project with the same name already exists: {}'.format(ser.validated_data.get('title', ''))
                 )
             raise LabelStudioDatabaseException('Database error during project creation. Try again.')
+
+        from projects.models import ProjectMember
+        ProjectMember.objects.get_or_create(
+            user=self.request.user, project=project,
+            defaults={'role': ProjectMember.PROJECT_ROLE_ADMIN, 'enabled': True},
+        )
 
     def get(self, request, *args, **kwargs):
         return super(ProjectListAPI, self).get(request, *args, **kwargs)
@@ -243,8 +250,8 @@ class ProjectCountsListAPI(generics.ListAPIView):
         serializer = GetFieldsSerializer(data=self.request.query_params)
         serializer.is_valid(raise_exception=True)
         fields = serializer.validated_data.get('include')
-        projects = Project.objects.with_counts(fields=fields).filter(
-            organization=self.request.user.active_organization
+        projects = ProjectManager.with_counts_annotate(
+            projects_for_user(self.request.user), fields=fields,
         )
 
         # Only annotate FSM state for UI/API consumption when both feature flags are enabled
@@ -377,8 +384,8 @@ class ProjectAPI(generics.RetrieveUpdateDestroyAPIView):
         serializer = GetFieldsSerializer(data=self.request.query_params)
         serializer.is_valid(raise_exception=True)
         fields = serializer.validated_data.get('include')
-        projects = Project.objects.with_counts(fields=fields).filter(
-            organization=self.request.user.active_organization
+        projects = ProjectManager.with_counts_annotate(
+            projects_for_user(self.request.user), fields=fields,
         )
 
         # Only annotate FSM state for UI/API consumption when both feature flags are enabled
@@ -411,6 +418,8 @@ class ProjectAPI(generics.RetrieveUpdateDestroyAPIView):
         return super(ProjectAPI, self).patch(request, *args, **kwargs)
 
     def perform_destroy(self, instance):
+        if not self.request.user.has_perm(all_permissions.projects_delete, instance):
+            self.permission_denied(self.request, message='Only the project owner can delete this project.')
         # we don't need to relaculate counters if we delete whole project
         with temporary_disconnect_all_signals():
             instance.delete()
@@ -750,6 +759,8 @@ class ProjectTaskListAPI(GetParentObjectMixin, generics.ListCreateAPIView, gener
 
     def delete(self, request, *args, **kwargs):
         project = generics.get_object_or_404(Project.objects.for_user(self.request.user), pk=self.kwargs['pk'])
+        if not request.user.has_perm(all_permissions.tasks_delete, project):
+            raise PermissionDenied('You do not have permission to delete tasks.')
         task_ids = list(Task.objects.filter(project=project).values('id'))
         Task.delete_tasks_without_signals(Task.objects.filter(project=project))
         logger.info(f'calling reset project_id={project.id} ProjectTaskListAPI.delete()')
@@ -807,11 +818,9 @@ def read_templates_and_groups():
 class TemplateListAPI(generics.ListAPIView):
     parser_classes = (JSONParser, FormParser, MultiPartParser)
     permission_required = all_permissions.projects_view
-    # load this once in memory for performance
-    templates_and_groups = read_templates_and_groups()
 
     def list(self, request, *args, **kwargs):
-        return Response(self.templates_and_groups)
+        return Response(read_templates_and_groups())
 
 
 @extend_schema(exclude=True)
@@ -856,7 +865,7 @@ class ProjectModelVersions(generics.RetrieveAPIView):
     permission_required = all_permissions.projects_view
 
     def get_queryset(self):
-        return Project.objects.filter(organization=self.request.user.active_organization)
+        return projects_for_user(self.request.user)
 
     def get(self, request, *args, **kwargs):
         project = self.get_object()
@@ -924,3 +933,127 @@ class ProjectAnnotatorsAPI(generics.RetrieveAPIView):
         users = User.objects.filter(id__in=annotator_ids).prefetch_related('om_through').order_by('id')
         data = UserSimpleSerializer(users, many=True, context={'request': request}).data
         return Response(data)
+
+
+class ProjectMemberListCreateAPI(generics.ListCreateAPIView):
+    """List and add members to a project. Requires project admin or higher."""
+
+    permission_required = ViewClassPermission(
+        GET=all_permissions.projects_view,
+        POST=all_permissions.projects_change,
+    )
+
+    def _get_project(self):
+        return generics.get_object_or_404(Project.objects.for_user(self.request.user), pk=self.kwargs['pk'])
+
+    def get_queryset(self):
+        from projects.models import ProjectMember
+
+        self._get_project()
+        return ProjectMember.objects.filter(
+            project_id=self.kwargs['pk'], enabled=True
+        ).select_related('user').order_by('created_at')
+
+    def get_serializer_class(self):
+        from projects.serializers import ProjectMemberSerializer, ProjectMemberCreateSerializer
+        if self.request.method == 'POST':
+            return ProjectMemberCreateSerializer
+        return ProjectMemberSerializer
+
+    def create(self, request, *args, **kwargs):
+        from projects.models import Project, ProjectMember
+        from projects.serializers import ProjectMemberCreateSerializer, ProjectMemberSerializer
+        from users.models import User
+
+        project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=kwargs['pk'])
+        if not request.user.has_perm(all_permissions.projects_change, project):
+            raise PermissionDenied('Only project administrators can manage project members.')
+        serializer = ProjectMemberCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user_id = serializer.validated_data['user_id']
+        role = serializer.validated_data['role']
+
+        user = User.objects.get(pk=user_id)
+        member, created = ProjectMember.objects.update_or_create(
+            user=user, project=project,
+            defaults={'role': role, 'enabled': True},
+        )
+        return Response(
+            ProjectMemberSerializer(member).data,
+            status=201 if created else 200,
+        )
+
+
+class ProjectMemberDetailAPI(generics.RetrieveUpdateDestroyAPIView):
+    """Update role or remove a project member."""
+
+    permission_required = ViewClassPermission(
+        GET=all_permissions.projects_view,
+        PATCH=all_permissions.projects_change,
+        PUT=all_permissions.projects_change,
+        DELETE=all_permissions.projects_change,
+    )
+
+    def _get_project(self):
+        return generics.get_object_or_404(Project.objects.for_user(self.request.user), pk=self.kwargs['pk'])
+
+    def get_queryset(self):
+        from projects.models import ProjectMember
+
+        self._get_project()
+        return ProjectMember.objects.filter(
+            project_id=self.kwargs['pk'], enabled=True
+        ).select_related('user')
+
+    def get_serializer_class(self):
+        from projects.serializers import ProjectMemberSerializer
+        return ProjectMemberSerializer
+
+    def get_object(self):
+        from projects.models import ProjectMember
+        self._get_project()
+        return ProjectMember.objects.get(
+            project_id=self.kwargs['pk'],
+            pk=self.kwargs['member_pk'],
+            enabled=True,
+        )
+
+    def perform_destroy(self, instance):
+        instance.enabled = False
+        instance.save(update_fields=['enabled'])
+
+    def update(self, request, *args, **kwargs):
+        project = self._get_project()
+        if not request.user.has_perm(all_permissions.projects_change, project):
+            raise PermissionDenied('Only project administrators can manage project members.')
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        project = self._get_project()
+        if not request.user.has_perm(all_permissions.projects_change, project):
+            raise PermissionDenied('Only project administrators can manage project members.')
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        project = self._get_project()
+        if not request.user.has_perm(all_permissions.projects_change, project):
+            raise PermissionDenied('Only project administrators can manage project members.')
+        return super().destroy(request, *args, **kwargs)
+
+
+class ProjectWorkflowAPI(generics.RetrieveUpdateAPIView):
+    """Get/update project workflow configuration."""
+
+    permission_required = ViewClassPermission(
+        GET=all_permissions.projects_view,
+        PATCH=all_permissions.projects_change,
+        PUT=all_permissions.projects_change,
+    )
+
+    def get_queryset(self):
+        return projects_for_user(self.request.user)
+
+    def get_serializer_class(self):
+        from projects.serializers import ProjectWorkflowSerializer
+        return ProjectWorkflowSerializer

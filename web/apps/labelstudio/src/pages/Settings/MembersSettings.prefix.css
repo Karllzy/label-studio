@@ -1,0 +1,137 @@
+.members-settings {
+    padding: 0;
+
+    &__header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+
+        & h3 {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 0;
+        }
+    }
+
+    &__description {
+        font-size: 13px;
+        color: var(--sand_500);
+        margin-bottom: 20px;
+    }
+
+    &__table-wrapper {
+        border: 1px solid var(--sand_300);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    &__table {
+        width: 100%;
+        border-collapse: collapse;
+
+        & th {
+            text-align: left;
+            padding: 10px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--sand_600);
+            background: var(--sand_100);
+            border-bottom: 1px solid var(--sand_300);
+        }
+
+        & td {
+            padding: 10px 14px;
+            font-size: 14px;
+            border-bottom: 1px solid var(--sand_200);
+        }
+
+        & tbody tr:last-child td {
+            border-bottom: none;
+        }
+    }
+
+    &__role-select {
+        padding: 4px 8px;
+        border: 1px solid var(--sand_300);
+        border-radius: 4px;
+        font-size: 13px;
+        background: var(--sand_0);
+        cursor: pointer;
+    }
+
+    &__add-form {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 12px 0;
+    }
+
+    &__field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+
+        & label {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        & select, & input {
+            padding: 8px 12px;
+            border: 1px solid var(--sand_300);
+            border-radius: 4px;
+            font-size: 14px;
+        }
+    }
+
+    &__actions {
+        display: flex;
+        justify-content: flex-end;
+        padding-top: 4px;
+    }
+
+    &__search-results {
+        border: 1px solid var(--sand_300);
+        border-radius: 6px;
+        background: var(--sand_0);
+        overflow: hidden;
+    }
+
+    &__search-item {
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 12px;
+        border: 0;
+        border-bottom: 1px solid var(--sand_200);
+        background: transparent;
+        cursor: pointer;
+        text-align: left;
+
+        &:last-child {
+            border-bottom: 0;
+        }
+
+        &:hover {
+            background: var(--sand_100);
+        }
+
+        & span:last-child {
+            color: var(--sand_600);
+            font-size: 13px;
+        }
+    }
+
+    &__search-empty,
+    &__selected-user {
+        padding: 10px 12px;
+        font-size: 13px;
+        color: var(--sand_600);
+        border: 1px solid var(--sand_300);
+        border-radius: 6px;
+        background: var(--sand_100);
+    }
+}

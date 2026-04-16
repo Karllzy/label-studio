@@ -230,11 +230,16 @@ export const DataStore = (modelName, { listItemType, apiMethod, properties, asso
 
         self.loading = true;
 
-        if (interaction === "filter" || interaction === "ordering" || reload) {
+        // Page selection: explicit pageNumber wins (e.g. pagination footer). Do not let reload=true
+        // wipe it — previously reload always forced page 1 and broke next/prev buttons.
+        if (interaction === "filter" || interaction === "ordering") {
           self.page = 1;
-        } else if (reload || isDefined(pageNumber)) {
-          if (self.page === 0) self.page = 1;
-          else if (isDefined(pageNumber)) self.page = pageNumber;
+        } else if (isDefined(pageNumber)) {
+          self.page = Math.max(1, pageNumber);
+        } else if (reload) {
+          self.page = 1;
+        } else if (self.page === 0) {
+          self.page = 1;
         } else {
           self.page++;
         }

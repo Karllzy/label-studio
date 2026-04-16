@@ -1,4 +1,4 @@
-import { IconExternal, IconFolderAdd, IconHumanSignal, IconUserAdd, IconFolderOpen } from "@humansignal/icons";
+import { IconExternal, IconFolderAdd, IconUserAdd, IconFolderOpen } from "@humansignal/icons";
 import { Button, SimpleCard, Spinner, Tooltip, Typography } from "@humansignal/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
@@ -20,37 +20,16 @@ import {
   visitedIdsAtom,
 } from "./atoms";
 
-const resources = [
-  {
-    title: "Documentation",
-    url: "https://labelstud.io/guide/",
-  },
-  {
-    title: "API Documentation",
-    url: "https://api.labelstud.io/api-reference/introduction/getting-started",
-  },
-  {
-    title: "Release Notes",
-    url: "https://labelstud.io/learn/categories/release-notes/",
-  },
-  {
-    title: "LabelStud.io Blog",
-    url: "https://labelstud.io/blog/",
-  },
-  {
-    title: "Slack Community",
-    url: "https://slack.labelstud.io",
-  },
-];
+const resources: { title: string; url: string }[] = [];
 
 const actions = [
   {
-    title: "Create Project",
+    title: "创建项目",
     icon: IconFolderAdd,
     type: "createProject",
   },
   {
-    title: "Invite Members",
+    title: "邀请成员",
     icon: IconUserAdd,
     type: "inviteMembers",
   },
@@ -68,7 +47,7 @@ export const HomePage: Page = () => {
   const sortedProjects = useAtomValue(sortedProjectsAtom);
   const visitedIds = useAtomValue(visitedIdsAtom);
 
-  useUpdatePageTitle("Home");
+  useUpdatePageTitle("首页");
 
   // Fetch regular projects
   const { data, isFetching, isSuccess, isError } = useQuery({
@@ -136,10 +115,10 @@ export const HomePage: Page = () => {
         <section className="flex flex-col gap-6">
           <div className="flex flex-col gap-1">
             <Typography variant="headline" size="small">
-              Welcome 👋
+              欢迎 👋
             </Typography>
             <Typography size="small" className="text-neutral-content-subtler">
-              Let's get you started.
+              开始使用吧
             </Typography>
           </div>
           <div className="flex justify-start gap-4">
@@ -163,9 +142,9 @@ export const HomePage: Page = () => {
             title={
               data && data?.count > 0 ? (
                 <>
-                  Recent Projects{" "}
+                  最近项目{" "}
                   <a href="/projects" className="text-lg font-normal hover:underline">
-                    View All
+                    查看全部
                   </a>
                 </>
               ) : null
@@ -176,7 +155,7 @@ export const HomePage: Page = () => {
                 <Spinner />
               </div>
             ) : isError ? (
-              <div className="h-64 flex justify-center items-center">can't load projects</div>
+              <div className="h-64 flex justify-center items-center">无法加载项目</div>
             ) : isSuccess && data && sortedProjects.length === 0 ? (
               <div className="flex flex-col justify-center items-center border border-primary-border-subtle bg-primary-emphasis-subtle rounded-lg h-64">
                 <div
@@ -187,13 +166,13 @@ export const HomePage: Page = () => {
                   <IconFolderOpen />
                 </div>
                 <Typography variant="headline" size="small">
-                  Create your first project
+                  创建第一个项目
                 </Typography>
                 <Typography size="small" className="text-neutral-content-subtler">
-                  Import your data and set up the labeling interface to start annotating
+                  导入数据并配置标注界面以开始标注
                 </Typography>
-                <Button className="mt-4" onClick={() => setModalIsOpen(true)} aria-label="Create new project">
-                  Create Project
+                <Button className="mt-4" onClick={() => setModalIsOpen(true)} aria-label="创建新项目">
+                  创建项目
                 </Button>
               </div>
             ) : isSuccess && data && sortedProjects.length > 0 ? (
@@ -207,7 +186,7 @@ export const HomePage: Page = () => {
         </section>
         <section className="flex flex-col gap-6">
           <HeidiTips collection="projectSettings" />
-          <SimpleCard title="Resources" description="Learn, explore and get help" data-testid="resources-card">
+          <SimpleCard title="资源" description="学习、探索和获取帮助" data-testid="resources-card">
             <ul>
               {resources.map((link) => {
                 return (
@@ -227,8 +206,7 @@ export const HomePage: Page = () => {
             </ul>
           </SimpleCard>
           <div className="flex gap-2 items-center">
-            <IconHumanSignal />
-            <span className="text-neutral-content-subtle">Label Studio Version: Community</span>
+            <span className="text-neutral-content-subtle">数据平台</span>
           </div>
         </section>
       </div>
@@ -238,7 +216,7 @@ export const HomePage: Page = () => {
   );
 };
 
-HomePage.title = "Home";
+HomePage.title = "首页";
 HomePage.path = "/";
 HomePage.exact = true;
 
@@ -264,7 +242,7 @@ function ProjectSimpleCard({ project }: { project: APIProject }) {
             <span className="text-neutral-content truncate">{project.title}</span>
           </Tooltip>
           <div className="text-neutral-content-subtler text-sm">
-            {finished} of {total} Tasks ({total > 0 ? Math.round((finished / total) * 100) : 0}%)
+            {finished} / {total} 任务 ({total > 0 ? Math.round((finished / total) * 100) : 0}%)
           </div>
         </div>
         <div className="bg-neutral-surface rounded-full overflow-hidden w-full h-2 shadow-neutral-border-subtle shadow-border-1">

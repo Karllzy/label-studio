@@ -447,3 +447,61 @@ def _old_vs_new_data_keys_inconsistency_message(new_data_keys, old_data_keys, cu
                 current_file, new_data_keys_list, old_data_keys_list
             )
         )
+
+
+class ChunkedUpload(models.Model):
+    """Track multi-part chunked file uploads for large files."""
+
+    class Status(models.TextChoices):
+        UPLOADING = 'uploading', 'Uploading'
+        COMPLETED = 'completed', 'Completed'
+        FAILED = 'failed', 'Failed'
+
+    upload_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    user = models.ForeignKey('users.User', related_name='chunked_uploads', on_delete=models.CASCADE)
+    project = models.ForeignKey('projects.Project', related_name='chunked_uploads', on_delete=models.CASCADE)
+    filename = models.CharField(max_length=1024)
+    total_size = models.BigIntegerField(default=0)
+    total_chunks = models.IntegerField(default=0)
+    uploaded_chunks = models.IntegerField(default=0)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.UPLOADING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    @property
+    def chunk_dir(self):
+        return os.path.join(
+            settings.MEDIA_ROOT,
+            settings.CHUNKED_UPLOAD_DIR,
+            str(self.project_id),
+            str(self.upload_id),
+        )
+
+    def get_chunk_path(self, chunk_index):
+        return os.path.join(self.chunk_dir, f'chunk_{chunk_index:06d}')
+
+    def merge_chunks(self):
+        """Merge all chunks into a single file and return the path."""
+        os.makedirs(self.chunk_dir, exist_ok=True)
+        merged_path = os.path.join(self.chunk_dir, self.filename)
+        with open(merged_path, 'wb') as merged:
+            for i in range(self.total_chunks):
+                chunk_path = self.get_chunk_path(i)
+                with open(chunk_path, 'rb') as chunk:
+                    while True:
+                        data = chunk.read(8192)
+                        if not data:
+                            break
+                        merged.write(data)
+                os.remove(chunk_path)
+        return merged_path
+
+    def cleanup(self):
+        """Remove temporary chunk files."""
+        import shutil
+
+        if os.path.isdir(self.chunk_dir):
+            shutil.rmtree(self.chunk_dir, ignore_errors=True)

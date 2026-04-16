@@ -3,6 +3,7 @@
 from django.urls import include, path
 
 from . import api, views
+from tasks import api as tasks_api
 
 app_name = 'projects'
 
@@ -47,6 +48,15 @@ _api_urlpatterns = [
     path('<int:pk>/model-versions/', api.ProjectModelVersions.as_view(), name='project-model-versions'),
     # List all annotators for project
     path('<int:pk>/annotators/', api.ProjectAnnotatorsAPI.as_view(), name='project-annotators'),
+    # Project members management
+    path('<int:pk>/members/', api.ProjectMemberListCreateAPI.as_view(), name='project-members'),
+    path('<int:pk>/members/<int:member_pk>/', api.ProjectMemberDetailAPI.as_view(), name='project-member-detail'),
+    # Project workflow settings
+    path('<int:pk>/workflow/', api.ProjectWorkflowAPI.as_view(), name='project-workflow'),
+    # Annotation review workflow
+    path('<int:pk>/pending-reviews/', tasks_api.PendingReviewListAPI.as_view(), name='project-pending-reviews'),
+    # Task assignment
+    path('<int:pk>/assign-tasks/', tasks_api.TaskAssignmentAPI.as_view(), name='project-assign-tasks'),
 ]
 
 _api_urlpatterns_templates = [

@@ -64,6 +64,9 @@ export const APIConfig = {
     /** Next task (labelstream, default sequential) */
     nextTask: "/tasks/next",
 
+    /** Pending review queue for reviewer flow */
+    pendingReviews: "/../projects/:projectID/pending-reviews/",
+
     /** Single annotation */
     annotation: "/tasks/:taskID/annotations/:id",
 

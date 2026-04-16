@@ -9,6 +9,7 @@ import { TabFilterType } from "./tab_filter_type";
 import { TabHiddenColumns } from "./tab_hidden_columns";
 import { serializeJsonForUrl, deserializeJsonFromUrl } from "@humansignal/core";
 import { isEmpty } from "../../utils/helpers";
+import { dmUserStorageKey } from "../../utils/dm-user-storage";
 
 const storeValue = (name, value) => {
   window.localStorage.setItem(name, value);
@@ -20,6 +21,27 @@ const restoreValue = (name) => {
 
   return value ? value === "true" : false;
 };
+
+const sidebarEnabledKey = () => dmUserStorageKey("sidebarEnabled");
+const sidebarVisibleKey = () => dmUserStorageKey("sidebarVisible");
+
+function readVirtualTabRaw(projectId) {
+  const userKey = dmUserStorageKey(`virtual-tab-${projectId}`);
+  let raw = window.localStorage.getItem(userKey);
+  if (raw) return raw;
+  const legacyKey = `virtual-tab-${projectId}`;
+  if (userKey !== legacyKey) {
+    raw = window.localStorage.getItem(legacyKey);
+    if (raw) {
+      try {
+        window.localStorage.setItem(userKey, raw);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return raw;
+}
 
 const dataCleanup = (tab, columns) => {
   const { data } = tab;
@@ -78,8 +100,8 @@ export const TabStore = types
     availableFilters: types.optional(types.array(TabFilterType), []),
     columnsTargetMap: types.map(types.array(TabColumn)),
     columnsRaw: types.optional(CustomJSON, []),
-    sidebarVisible: restoreValue("sidebarVisible"),
-    sidebarEnabled: restoreValue("sidebarEnabled"),
+    sidebarVisible: restoreValue(sidebarVisibleKey()),
+    sidebarEnabled: restoreValue(sidebarEnabledKey()),
   })
   .volatile(() => ({
     defaultHidden: null,
@@ -178,8 +200,7 @@ export const TabStore = types
 
     createSnapshot(viewSnapshot = {}) {
       const isVirtual = !!viewSnapshot?.virtual;
-      const tabStorageKey = isVirtual && viewSnapshot.projectId ? `virtual-tab-${viewSnapshot.projectId}` : null;
-      const existingTabStorage = isVirtual && localStorage.getItem(tabStorageKey);
+      const existingTabStorage = isVirtual && viewSnapshot.projectId ? readVirtualTabRaw(viewSnapshot.projectId) : null;
       const existingTabStorageParsed = existingTabStorage ? JSON.parse(existingTabStorage) : null;
       const urlTabIsVirtualCandidate = !!(viewSnapshot?.tab && isNaN(viewSnapshot.tab));
       const existingTabUrlParsed =
@@ -376,17 +397,17 @@ export const TabStore = types
     },
 
     expandFilters() {
-      self.sidebarEnabled = storeValue("sidebarEnabled", true);
-      self.sidebarVisible = storeValue("sidebarVisible", true);
+      self.sidebarEnabled = storeValue(sidebarEnabledKey(), true);
+      self.sidebarVisible = storeValue(sidebarVisibleKey(), true);
     },
 
     collapseFilters() {
-      self.sidebarEnabled = storeValue("sidebarEnabled", false);
-      self.sidebarVisible = storeValue("sidebarVisible", false);
+      self.sidebarEnabled = storeValue(sidebarEnabledKey(), false);
+      self.sidebarVisible = storeValue(sidebarVisibleKey(), false);
     },
 
     toggleSidebar() {
-      self.sidebarVisible = storeValue("sidebarVisible", !self.sidebarVisible);
+      self.sidebarVisible = storeValue(sidebarVisibleKey(), !self.sidebarVisible);
     },
 
     fetchColumns() {
@@ -475,7 +496,7 @@ export const TabStore = types
       self.defaultHidden = TabHiddenColumns.create(hiddenColumns);
     },
 
-    fetchTabs: flow(function* (tab, taskID, labeling) {
+    fetchTabs: flow(function* (tab, taskID, labeling, annotationID) {
       const tabId = Number.parseInt(tab);
       const response = yield getRoot(self).apiCall("tabs");
       const tabs = response.tabs ?? response ?? [];
@@ -504,9 +525,10 @@ export const TabStore = types
           pushState: false,
         });
       } else if (isDefined(taskID)) {
-        const task = { id: Number.parseInt(taskID) };
+        const tid = Number.parseInt(taskID, 10);
+        const item = isDefined(annotationID) ? { id: Number.parseInt(annotationID, 10), task_id: tid } : { id: tid };
 
-        getRoot(self).startLabeling(task, {
+        getRoot(self).startLabeling(item, {
           pushState: false,
         });
       }

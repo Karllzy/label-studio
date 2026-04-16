@@ -19,6 +19,18 @@ _api_urlpatterns = [
         '<int:pk>/exports/<int:export_pk>/download', api.ExportDownloadAPI.as_view(), name='project-exports-download'
     ),
     path('<int:pk>/exports/<int:export_pk>/convert', api.ExportConvertAPI.as_view(), name='project-exports-convert'),
+    # Packaged export (export to folder + zip download)
+    path('<int:pk>/exports/packages/', api.PackagedExportListAPI.as_view(), name='project-packaged-exports-list'),
+    path(
+        '<int:pk>/exports/packages/<int:export_pk>',
+        api.PackagedExportDetailAPI.as_view(),
+        name='project-packaged-exports-detail',
+    ),
+    path(
+        '<int:pk>/exports/packages/<int:export_pk>/download',
+        api.PackagedExportDownloadAPI.as_view(),
+        name='project-packaged-exports-download',
+    ),
 ]
 
 urlpatterns = [

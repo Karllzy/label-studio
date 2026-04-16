@@ -1,4 +1,4 @@
-import { type FormEventHandler, useCallback, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type FormEventHandler, useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { Button, InputFile, ToastType, useToast, Userpic } from "@humansignal/ui";
 import { getApiInstance } from "@humansignal/core";
@@ -13,6 +13,28 @@ import { useAtomValue } from "jotai";
  */
 import { Input } from "apps/labelstudio/src/components/Form/Elements";
 
+const formatErrorMessage = (payload: unknown): string => {
+  if (!payload) return "账号信息更新失败";
+  if (typeof payload === "string") return payload;
+
+  if (typeof payload === "object") {
+    const detail = (payload as Record<string, unknown>).detail;
+    if (typeof detail === "string") return detail;
+
+    const messages = Object.values(payload as Record<string, unknown>)
+      .flatMap((value) => {
+        if (Array.isArray(value)) return value;
+        return [value];
+      })
+      .map((value) => String(value))
+      .filter(Boolean);
+
+    if (messages.length > 0) return messages.join("；");
+  }
+
+  return "账号信息更新失败";
+};
+
 const updateUserAvatarAtom = atomWithMutation(() => ({
   mutationKey: ["update-user"],
   async mutationFn({
@@ -22,11 +44,10 @@ const updateUserAvatarAtom = atomWithMutation(() => ({
   }: { userId: number; body: FormData; isDelete?: never } | { userId: number; isDelete: true; body?: never }) {
     const api = getApiInstance();
     const method = isDelete ? "deleteUserAvatar" : "updateUserAvatar";
-    const response = await api.invoke(
+
+    return await api.invoke(
       method,
-      {
-        pk: userId,
-      },
+      { pk: userId },
       {
         body,
         headers: {
@@ -35,7 +56,6 @@ const updateUserAvatarAtom = atomWithMutation(() => ({
         errorFilter: () => true,
       },
     );
-    return response;
   },
 }));
 
@@ -44,61 +64,106 @@ export const PersonalInfo = () => {
   const { user, refetch: refetchUser, isLoading: userInProgress, update: updateUser } = useAuth();
   const updateUserAvatar = useAtomValue(updateUserAvatarAtom);
   const [isInProgress, setIsInProgress] = useState(false);
-  const [fname, setFname] = useState(user?.first_name ?? "");
-  const [lname, setLname] = useState(user?.last_name ?? "");
+  const [username, setUsername] = useState(user?.username ?? "");
+  const [firstName, setFirstName] = useState(user?.first_name ?? "");
+  const [lastName, setLastName] = useState(user?.last_name ?? "");
   const [phone, setPhone] = useState(user?.phone ?? "");
-  const avatarRef = useRef<HTMLInputElement>();
-  const fileChangeHandler: FormEventHandler<HTMLInputElement> = useCallback(
-    async (e) => {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
+  const avatarRef = useRef<HTMLInputElement>(null);
+
+  const handleAvatarChange: FormEventHandler<HTMLInputElement> = useCallback(
+    async (event) => {
       if (!user) return;
 
-      const input = e.currentTarget as HTMLInputElement;
+      const input = event.currentTarget;
       const body = new FormData();
       body.append("avatar", input.files?.[0] ?? "");
+
       const response = await updateUserAvatar.mutateAsync({
         body,
         userId: user.id,
       });
 
       if (!response.$meta.ok) {
-        toast?.show({ message: response?.response?.detail ?? "Error updating avatar", type: ToastType.error });
+        toast?.show({ message: response?.response?.detail ?? "头像更新失败", type: ToastType.error });
       } else {
         refetchUser();
       }
+
       input.value = "";
     },
-    [user?.id],
+    [refetchUser, toast, updateUserAvatar, user],
   );
 
-  const deleteUserAvatar = async () => {
+  const deleteUserAvatar = useCallback(async () => {
     if (!user) return;
+
     await updateUserAvatar.mutateAsync({ userId: user.id, isDelete: true });
     refetchUser();
-  };
+  }, [refetchUser, updateUserAvatar, user]);
 
-  const userFormSubmitHandler: FormEventHandler = useCallback(
-    async (e) => {
-      e.preventDefault();
+  const handleSubmit: FormEventHandler = useCallback(
+    async (event) => {
+      event.preventDefault();
       if (!user) return;
-      const body = new FormData(e.currentTarget as HTMLFormElement);
-      const json = Object.fromEntries(body.entries());
-      const response = await updateUser(json);
 
-      refetchUser();
-      if (!response?.$meta.ok) {
-        toast?.show({ message: response?.response?.detail ?? "Error updating user", type: ToastType.error });
+      const payload: Record<string, string> = {
+        username,
+        first_name: firstName,
+        last_name: lastName,
+        phone,
+      };
+
+      if (currentPassword || newPassword || newPasswordConfirm) {
+        payload.current_password = currentPassword;
+        payload.new_password = newPassword;
+        payload.new_password_confirm = newPasswordConfirm;
       }
+
+      const response = await updateUser(payload);
+      refetchUser();
+
+      if (!response?.$meta.ok) {
+        toast?.show({ message: formatErrorMessage(response?.response), type: ToastType.error });
+        return;
+      }
+
+      setCurrentPassword("");
+      setNewPassword("");
+      setNewPasswordConfirm("");
+      toast?.show({ message: "账号信息已保存", type: ToastType.info });
     },
-    [user?.id],
+    [
+      currentPassword,
+      firstName,
+      lastName,
+      newPassword,
+      newPasswordConfirm,
+      phone,
+      refetchUser,
+      toast,
+      updateUser,
+      user,
+      username,
+    ],
   );
+
+  const bindValue =
+    (setter: (value: string) => void) =>
+    (event: ChangeEvent<HTMLInputElement>) => {
+      setter(event.currentTarget.value);
+    };
 
   useEffect(() => {
     setIsInProgress(userInProgress);
   }, [userInProgress]);
 
   useEffect(() => {
-    setFname(user?.first_name ?? "");
-    setLname(user?.last_name ?? "");
+    setUsername(user?.username ?? "");
+    setFirstName(user?.first_name ?? "");
+    setLastName(user?.last_name ?? "");
     setPhone(user?.phone ?? "");
   }, [user]);
 
@@ -110,53 +175,83 @@ export const PersonalInfo = () => {
           <form className={styles.flex1}>
             <InputFile
               name="avatar"
-              onChange={fileChangeHandler}
+              onChange={handleAvatarChange}
               accept="image/png, image/jpeg, image/jpg"
               ref={avatarRef}
             />
           </form>
           {user?.avatar && (
             <Button type="submit" variant="negative" look="outlined" size="medium" onClick={deleteUserAvatar}>
-              Delete
+              删除头像
             </Button>
           )}
         </div>
-        <form onSubmit={userFormSubmitHandler} className={styles.sectionContent}>
+
+        <form onSubmit={handleSubmit} className={styles.sectionContent}>
+          <div className={styles.flexRow}>
+            <div className={styles.flex1}>
+              <Input label="用户名" value={username} onChange={bindValue(setUsername)} name="username" />
+            </div>
+            <div className={styles.flex1}>
+              <Input label="邮箱" type="email" readOnly value={user?.email ?? ""} />
+            </div>
+          </div>
+
+          <div className={styles.flexRow}>
+            <div className={styles.flex1}>
+              <Input label="名" value={firstName} onChange={bindValue(setFirstName)} name="first_name" />
+            </div>
+            <div className={styles.flex1}>
+              <Input label="姓" value={lastName} onChange={bindValue(setLastName)} name="last_name" />
+            </div>
+          </div>
+
+          <div className={styles.flexRow}>
+            <div className={styles.flex1}>
+              <Input label="电话" type="tel" onChange={bindValue(setPhone)} value={phone} name="phone" />
+            </div>
+            <div className={styles.flex1} />
+          </div>
+
           <div className={styles.flexRow}>
             <div className={styles.flex1}>
               <Input
-                label="First Name"
-                value={fname}
-                onChange={(e: React.KeyboardEvent<HTMLInputElement>) => setFname(e.currentTarget.value)}
-                name="first_name"
+                label="当前密码"
+                type="password"
+                value={currentPassword}
+                onChange={bindValue(setCurrentPassword)}
+                name="current_password"
+                description="如需修改密码，请先输入当前密码。"
               />
             </div>
             <div className={styles.flex1}>
               <Input
-                label="Last Name"
-                value={lname}
-                onChange={(e: React.KeyboardEvent<HTMLInputElement>) => setLname(e.currentTarget.value)}
-                name="last_name"
+                label="新密码"
+                type="password"
+                value={newPassword}
+                onChange={bindValue(setNewPassword)}
+                name="new_password"
+                description="至少 8 位；留空则不修改密码。"
               />
             </div>
           </div>
+
           <div className={styles.flexRow}>
             <div className={styles.flex1}>
-              <Input label="E-mail" type="email" readOnly={true} value={user?.email ?? ""} />
-            </div>
-            <div className={styles.flex1}>
               <Input
-                label="Phone"
-                type="phone"
-                onChange={(e: React.KeyboardEvent<HTMLInputElement>) => setPhone(e.currentTarget.value)}
-                value={phone}
-                name="phone"
+                label="确认新密码"
+                type="password"
+                value={newPasswordConfirm}
+                onChange={bindValue(setNewPasswordConfirm)}
+                name="new_password_confirm"
               />
             </div>
+            <div className={styles.flex1} />
           </div>
+
           <div className={clsx(styles.flexRow, styles.flexEnd)}>
             <Button style={{ width: 125 }} waiting={isInProgress}>
-              Save
+              保存
             </Button>
           </div>
         </form>

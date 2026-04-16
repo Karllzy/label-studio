@@ -80,6 +80,15 @@ operators = {
 }
 
 
+def _filter_line_field_names(_filter):
+    line = [_filter, _filter.child_filter] if _filter.child_filter else [_filter]
+    names = []
+    for f in line:
+        if f.filter.startswith('filter:tasks:'):
+            names.append(f.filter.replace('filter:tasks:', ''))
+    return names
+
+
 def get_fields_for_filter_ordering(prepare_params):
     result = []
     if prepare_params is None:
@@ -92,9 +101,8 @@ def get_fields_for_filter_ordering(prepare_params):
 
     # collect fields from filters
     if prepare_params.filters:
-        for _filter in prepare_params.filters.items:
-            filter_field_name = _filter.filter.replace('filter:tasks:', '')
-            result.append(filter_field_name)
+        for parent_filter in prepare_params.filters.items:
+            result.extend(_filter_line_field_names(parent_filter))
     return result
 
 
@@ -184,7 +192,8 @@ def apply_ordering(queryset, ordering, project, request, view_data=None):
 
         queryset = queryset.order_by(f)
     else:
-        queryset = queryset.order_by('id')
+        # Default: project-local order (inner_id) is usually more meaningful than global DB id
+        queryset = queryset.order_by('inner_id', 'id')
 
     return queryset
 
@@ -666,26 +675,32 @@ def annotate_predictions_score(queryset):
     if not first_task:
         return queryset
 
+    def annotate_all_predictions_score():
+        return queryset.annotate(predictions_score=Avg('predictions__score'))
+
     # new approach with each ML backend contains it's version
     if flag_set('ff_front_dev_1682_model_version_dropdown_070622_short', first_task.project.organization.created_by):
         model_versions = list(
             first_task.project.ml_backends.filter(project=first_task.project).values_list('model_version', flat=True)
         )
         if len(model_versions) == 0:
-            return queryset.annotate(predictions_score=Avg('predictions__score'))
+            return annotate_all_predictions_score()
 
-        else:
+        if queryset.filter(predictions__model_version__in=model_versions).exists():
             return queryset.annotate(
                 predictions_score=Avg('predictions__score', filter=Q(predictions__model_version__in=model_versions))
             )
+        return annotate_all_predictions_score()
     else:
         model_version = first_task.project.model_version
         if model_version is None:
-            return queryset.annotate(predictions_score=Avg('predictions__score'))
-        else:
+            return annotate_all_predictions_score()
+
+        if queryset.filter(predictions__model_version=model_version).exists():
             return queryset.annotate(
                 predictions_score=Avg('predictions__score', filter=Q(predictions__model_version=model_version))
             )
+        return annotate_all_predictions_score()
 
 
 def annotate_annotations_ids(queryset):

@@ -145,6 +145,7 @@ class ViewSerializer(serializers.ModelSerializer):
     class Meta:
         model = View
         fields = '__all__'
+        read_only_fields = ['user']
 
     def to_internal_value(self, data):
         """
@@ -262,8 +263,12 @@ class ViewSerializer(serializers.ModelSerializer):
                 self._create_filters(filter_group=filter_group, filters_data=filters_data)
 
                 validated_data['filter_group_id'] = filter_group.id
-                # rather than defaulting to 0, we should get the current count and set it as the index
-                validated_data['order'] = View.objects.filter(project=validated_data['project']).count()
+                # Tab order is scoped per user within the project
+                order_user = validated_data.get('user')
+                order_qs = View.objects.filter(project=validated_data['project'])
+                if order_user is not None:
+                    order_qs = order_qs.filter(user=order_user)
+                validated_data['order'] = order_qs.count()
             view = self.Meta.model.objects.create(**validated_data)
 
             return view

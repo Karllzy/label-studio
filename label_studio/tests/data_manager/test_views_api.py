@@ -3,9 +3,13 @@
 import json
 
 import pytest
+from organizations.models import OrganizationMember
+from projects.models import Project
 from rest_framework import status
+from django.test import Client
 
-from ..utils import project_id  # noqa
+from ..utils import project_id, signin
+from users.models import User
 
 pytestmark = pytest.mark.django_db
 
@@ -669,3 +673,43 @@ def test_update_views_order(business_client, project_id):
 
     returned_ids = [view['id'] for view in data]
     assert returned_ids == new_order['ids']
+
+
+def test_views_api_private_per_user(business_client, project_id):
+    """Data Manager tabs are owned by the user; collaborators do not see each other's views."""
+    org = business_client.organization
+    other = User.objects.create(email='other_tabs_user@pytest.net')
+    other.set_password('pytest')
+    other.save()
+    OrganizationMember.objects.create(user=other, organization=org)
+
+    project = Project.objects.get(pk=project_id)
+    project.add_collaborator(other)
+
+    other_client = Client()
+    assert signin(other_client, other.email, 'pytest').status_code == 302
+
+    business_client.post(
+        '/api/dm/views/',
+        data=json.dumps(dict(project=project_id, data={'owner_only': True})),
+        content_type='application/json',
+    )
+
+    mine = business_client.get(f'/api/dm/views/?project={project_id}')
+    theirs = other_client.get(f'/api/dm/views/?project={project_id}')
+    assert mine.status_code == 200
+    assert theirs.status_code == 200
+    assert len(mine.json()) == 1
+    assert len(theirs.json()) == 0
+
+    other_client.post(
+        '/api/dm/views/',
+        data=json.dumps(dict(project=project_id, data={'other_tab': True})),
+        content_type='application/json',
+    )
+    mine_after = business_client.get(f'/api/dm/views/?project={project_id}')
+    theirs_after = other_client.get(f'/api/dm/views/?project={project_id}')
+    assert len(mine_after.json()) == 1
+    assert len(theirs_after.json()) == 1
+    assert mine_after.json()[0]['data'].get('owner_only') is True
+    assert theirs_after.json()[0]['data'].get('other_tab') is True

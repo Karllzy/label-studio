@@ -28,10 +28,10 @@ export const FiltersButton = buttonInjector(
           look="outlined"
           onClick={() => sidebarEnabled && viewsStore.toggleSidebar()}
           trailing={<Icon icon={IconChevronDown} />}
-          aria-label="Filters"
+          aria-label="筛选"
           {...rest}
         >
-          Filters{" "}
+          筛选{" "}
           {hasFilters && (
             <Badge size="small" className="ml-tightest">
               {activeFiltersNumber}

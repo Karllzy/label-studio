@@ -14,6 +14,7 @@ import { useValueTracker } from "../Form/Utils";
 import "./Pagination.prefix.css";
 import { useUpdateEffect } from "../../../hooks/useUpdateEffect";
 import { Select } from "../Form/Elements";
+import { dmUserStorageKey } from "../../../utils/dm-user-storage";
 
 interface PaginationProps {
   name?: string | (() => string);
@@ -52,17 +53,31 @@ const isSystemEvent = (e: KeyboardEvent<HTMLInputElement>): boolean => {
 };
 
 export const getStoredPageSize = (name?: string, defaultValue?: number): number | undefined => {
-  const value = localStorage.getItem(`pages:${name}`);
-
+  if (!name) return defaultValue ?? undefined;
+  const userKey = dmUserStorageKey(`pages:${name}`);
+  let value = localStorage.getItem(userKey);
+  if (!value) {
+    const legacyKey = `pages:${name}`;
+    if (userKey !== legacyKey) {
+      const legacy = localStorage.getItem(legacyKey);
+      if (legacy) {
+        try {
+          localStorage.setItem(userKey, legacy);
+        } catch {
+          /* ignore */
+        }
+        value = legacy;
+      }
+    }
+  }
   if (isDefined(value)) {
     return Number.parseInt(value);
   }
-
   return defaultValue ?? undefined;
 };
 
 export const setStoredPageSize = (name: string, pageSize: number) => {
-  localStorage.setItem(`pages:${name}`, pageSize.toString());
+  localStorage.setItem(dmUserStorageKey(`pages:${name}`), pageSize.toString());
 };
 
 export const Pagination: FC<PaginationProps> = forwardRef<any, PaginationProps>(

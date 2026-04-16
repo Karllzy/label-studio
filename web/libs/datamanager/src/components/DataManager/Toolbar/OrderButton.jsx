@@ -27,7 +27,7 @@ export const OrderButton = injector(
             columnFilter={orderableFilter}
             value={ordering?.field ?? null}
             onChange={(key) => view.setOrdering(key)}
-            placeholder="Order by"
+            placeholder="排序"
             triggerProps={{
               style: {
                 padding: "var(--spacing-tight)",

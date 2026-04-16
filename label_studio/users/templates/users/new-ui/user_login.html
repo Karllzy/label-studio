@@ -4,7 +4,6 @@
   {{ block.super }}
   <script nonce="{{request.csp_nonce}}">
     gaClientIdTrackingIframe('users.login.view');
-    // Give time for `ls_gaclient_id` to be set
     setTimeout(() => {
       const ls_gaclient_id = sessionStorage.getItem('ls_gaclient_id');
       __lsa('users.login.view', { ls_gaclient_id });
@@ -14,15 +13,15 @@
 
 {% block user_content %}
   <div class="form-wrapper">
-    <h2>Log in</h2>
+    <h2>登录</h2>
     <form id="login-form" action="{% url 'user-login' %}?next={{ next }}" method="post">
       {% csrf_token %}
       <div class="input-wrapper">
-        <label>Email Address</label>
+        <label>用户名或邮箱</label>
         <input type="text" class="lsf-input-ls" name="email" id="email" value="{{ form.data.email }}">
       </div>
       <div class="input-wrapper">
-        <label>Password</label>
+        <label>密码</label>
         <input type="password" class="lsf-input-ls" name="password" id="password">
       </div>
       {% if form.non_field_errors %}
@@ -34,15 +33,15 @@
       {% endif %}
       <div class="form-group">
         <input type="checkbox" id="persist_session" name="persist_session" class="lsf-checkbox-ls" checked="checked" style="width: auto;" />
-        <label for="persist_session">Keep me logged in this browser</label>
+        <label for="persist_session">在当前浏览器保持登录</label>
       </div>
-      <button type="submit" aria-label="Log In" class="login-button">Log in</button>
+      <button type="submit" aria-label="登录" class="login-button">登录</button>
     </form>
   </div>
   {% if not settings.DISABLE_SIGNUP_WITHOUT_LINK %}
   <div class="text-wrapper">
-    <p class="">Don't have an account?</p>
-    <a href="{% url 'user-signup' %}{% querystring %}">Sign up</a>
+    <p class="">还没有账号？</p>
+    <a href="{% url 'user-signup' %}{% querystring %}">注册</a>
   </div>
   {% endif %}
 {% endblock %}

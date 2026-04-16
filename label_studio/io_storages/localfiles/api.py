@@ -1,8 +1,16 @@
 """This file and its contents are licensed under the Apache License 2.0. Please see the included NOTICE for copyright information and LICENSE for a copy of the license."""
 
+import os
+from pathlib import Path
+
+from django.conf import settings
 from django.utils.decorators import method_decorator
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from core.permissions import all_permissions
 from io_storages.api import (
     ExportStorageDetailAPI,
     ExportStorageFormLayoutAPI,
@@ -303,3 +311,76 @@ class LocalFilesImportStorageFormLayoutAPI(ImportStorageFormLayoutAPI):
 
 class LocalFilesExportStorageFormLayoutAPI(ExportStorageFormLayoutAPI):
     pass
+
+
+@method_decorator(
+    name='get',
+    decorator=extend_schema(
+        tags=['Storage: Local'],
+        summary='Browse local directories',
+        description='Browse directories under LOCAL_FILES_DOCUMENT_ROOT for NAS/local storage setup.',
+        parameters=[
+            OpenApiParameter(
+                name='path',
+                type=OpenApiTypes.STR,
+                location='query',
+                description='Directory path to browse (relative to document root)',
+                required=False,
+            ),
+        ],
+        responses={200: OpenApiResponse(description='Directory listing')},
+    ),
+)
+class LocalFilesBrowseAPI(APIView):
+    """Browse local/NAS directories to help users select storage paths."""
+
+    permission_required = all_permissions.storages_view
+
+    def get(self, request, **kwargs):
+        document_root = settings.LOCAL_FILES_DOCUMENT_ROOT
+        rel_path = request.query_params.get('path', '')
+
+        if rel_path:
+            browse_path = Path(document_root) / rel_path
+        else:
+            browse_path = Path(document_root)
+
+        browse_path = browse_path.resolve()
+        doc_root_resolved = Path(document_root).resolve()
+
+        if not str(browse_path).startswith(str(doc_root_resolved)):
+            return Response({'error': 'Path is outside the allowed document root'}, status=400)
+
+        if not browse_path.exists():
+            return Response({'error': f'Path does not exist: {browse_path}'}, status=404)
+
+        if not browse_path.is_dir():
+            return Response({'error': f'Path is not a directory: {browse_path}'}, status=400)
+
+        entries = []
+        try:
+            for entry in sorted(browse_path.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
+                if entry.name.startswith('.'):
+                    continue
+                entry_info = {
+                    'name': entry.name,
+                    'path': str(entry),
+                    'is_dir': entry.is_dir(),
+                }
+                if entry.is_file():
+                    entry_info['size'] = entry.stat().st_size
+                elif entry.is_dir():
+                    try:
+                        entry_info['children_count'] = sum(1 for _ in entry.iterdir())
+                    except PermissionError:
+                        entry_info['children_count'] = -1
+                entries.append(entry_info)
+        except PermissionError:
+            return Response({'error': f'Permission denied: {browse_path}'}, status=403)
+
+        return Response({
+            'current_path': str(browse_path),
+            'document_root': document_root,
+            'parent_path': str(browse_path.parent) if browse_path != doc_root_resolved else None,
+            'entries': entries,
+        })

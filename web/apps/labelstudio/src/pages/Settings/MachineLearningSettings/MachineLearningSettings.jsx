@@ -211,5 +211,5 @@ export const MachineLearningSettings = () => {
   );
 };
 
-MachineLearningSettings.title = "Model";
+MachineLearningSettings.title = "模型";
 MachineLearningSettings.path = "/ml";

@@ -5,6 +5,8 @@ import { GeneralSettings } from "./GeneralSettings";
 import { AnnotationSettings } from "./AnnotationSettings";
 import { LabelingSettings } from "./LabelingSettings";
 import { MachineLearningSettings } from "./MachineLearningSettings/MachineLearningSettings";
+import { MembersSettings } from "./MembersSettings";
+import { WorkflowSettings } from "./WorkflowSettings";
 import { PredictionsSettings } from "./PredictionsSettings/PredictionsSettings";
 import { StorageSettings } from "./StorageSettings/StorageSettings";
 import "./settings.prefix.css";
@@ -16,6 +18,8 @@ export const MenuLayout = ({ children, ...routeProps }) => {
         GeneralSettings,
         LabelingSettings,
         AnnotationSettings,
+        MembersSettings,
+        WorkflowSettings,
         MachineLearningSettings,
         PredictionsSettings,
         StorageSettings,
@@ -32,6 +36,8 @@ const pages = {
   AnnotationSettings,
   LabelingSettings,
   MachineLearningSettings,
+  MembersSettings,
+  WorkflowSettings,
   PredictionsSettings,
   StorageSettings,
   WebhookPage,
@@ -39,7 +45,7 @@ const pages = {
 };
 
 export const SettingsPage = {
-  title: "Settings",
+  title: "设置",
   path: "/settings",
   exact: true,
   layout: MenuLayout,

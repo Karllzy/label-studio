@@ -135,6 +135,8 @@ const KeyPointRegionModel = types.compose(
 const HtxKeyPointView = ({ item, setShapeRef }) => {
   const { store } = item;
   const { suggestion } = useContext(ImageViewContext) ?? {};
+  const selectedTool = item.parent?.getToolsManager?.().findSelectedTool?.();
+  const isDrawingToolActive = !!selectedTool?.isDrawingTool;
 
   const regionStyles = useRegionStyles(item, {
     includeFill: true,
@@ -223,7 +225,7 @@ const HtxKeyPointView = ({ item, setShapeRef }) => {
         }}
         {...props}
         draggable={!item.isReadOnly()}
-        listening={!suggestion}
+        listening={!suggestion && !isDrawingToolActive}
       />
       <LabelOnKP item={item} color={regionStyles.strokeColor} />
     </Fragment>

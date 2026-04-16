@@ -98,5 +98,5 @@ export const PredictionsSettings = () => {
   );
 };
 
-PredictionsSettings.title = "Predictions";
+PredictionsSettings.title = "预标注";
 PredictionsSettings.path = "/predictions";

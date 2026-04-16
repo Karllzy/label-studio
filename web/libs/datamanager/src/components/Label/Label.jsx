@@ -12,9 +12,9 @@ import { DataView } from "../MainView";
 import "./Label.prefix.css";
 
 // Todo: consider renaming this file to something like LabelingWrapper as it is not a Label component
-const LabelingHeader = ({ SDK, onClick, isExplorerMode }) => {
+const LabelingHeader = ({ SDK, onClick, showTaskPanel, currentInnerId, totalTasks, finishedTasks }) => {
   return (
-    <div className={cn("label-view").elem("header").mod({ labelStream: !isExplorerMode }).toClassName()}>
+    <div className={cn("label-view").elem("header").mod({ labelStream: !showTaskPanel }).toClassName()}>
       <Space size="large">
         {SDK.interfaceEnabled("backButton") && (
           <Button
@@ -27,10 +27,21 @@ const LabelingHeader = ({ SDK, onClick, isExplorerMode }) => {
           </Button>
         )}
 
-        {isExplorerMode ? (
+        {showTaskPanel ? (
           <FieldsButton multiSelect={true} icon={<Icon icon={IconGearNewUI} />} title={"Fields"} />
         ) : null}
       </Space>
+
+      {Number.isFinite(currentInnerId) && Number.isFinite(totalTasks) ? (
+        <div className={cn("label-view").elem("progress").toClassName()}>
+          <span className={cn("label-view").elem("progress-main").toClassName()}>
+            项目内序号 {currentInnerId} / {totalTasks}
+          </span>
+          {Number.isFinite(finishedTasks) ? (
+            <span className={cn("label-view").elem("progress-sub").toClassName()}>已完成 {finishedTasks}</span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -50,7 +61,10 @@ export const Labeling = injector(
     const lsfRef = useRef();
     const SDK = store?.SDK;
     const view = store?.currentView;
-    const { isExplorerMode } = store;
+    const showTaskPanel = Boolean(view);
+    const currentInnerId = store?.taskStore?.selected?.inner_id;
+    const totalTasks = store?.project?.task_number ?? store?.project?.task_count;
+    const finishedTasks = store?.project?.finished_task_number ?? store?.project?.queue_done;
 
     const isLabelStream = useMemo(() => {
       return SDK.mode === "labelstream";
@@ -133,11 +147,18 @@ export const Labeling = injector(
     return (
       <div className={cn("label-view").mod({ loading }).toClassName()}>
         {SDK.interfaceEnabled("labelingHeader") && (
-          <LabelingHeader SDK={SDK} onClick={closeLabeling} isExplorerMode={isExplorerMode} />
+          <LabelingHeader
+            SDK={SDK}
+            onClick={closeLabeling}
+            showTaskPanel={showTaskPanel}
+            currentInnerId={currentInnerId}
+            totalTasks={totalTasks}
+            finishedTasks={finishedTasks}
+          />
         )}
 
         <div className={cn("label-view").elem("content").toClassName()}>
-          {isExplorerMode && (
+          {showTaskPanel && (
             <div className={cn("label-view").elem("table").toClassName()}>
               <Resizer
                 className={cn("label-view").elem("dataview").toClassName()}
@@ -157,7 +178,7 @@ export const Labeling = injector(
           <div
             className={cn("label-view")
               .elem("lsf-wrapper")
-              .mod({ mode: isExplorerMode ? "explorer" : "labeling" })
+              .mod({ mode: showTaskPanel ? "explorer" : "labeling" })
               .toClassName()}
           >
             {loading && <div className={cn("label-view").elem("waiting").mod({ animated: true }).toClassName()} />}

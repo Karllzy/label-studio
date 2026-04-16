@@ -2,7 +2,7 @@ import { IconQuestionOutline, IconSettings } from "@humansignal/icons";
 import { Tooltip, Badge } from "@humansignal/ui";
 import { inject } from "mobx-react";
 import { getRoot } from "mobx-state-tree";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useShortcut } from "../../../sdk/hotkeys";
 import { cn } from "../../../utils/bem";
 import { FF_DEV_2536, isFF } from "../../../utils/feature-flags";
@@ -14,7 +14,6 @@ import { Table } from "../../Common/Table/Table";
 import { GridView } from "../GridView/GridView";
 import "./Table.prefix.css";
 import { Button } from "@humansignal/ui";
-import { useEffect, useState } from "react";
 import { EmptyState } from "./empty-state";
 import {
   DENSITY_STORAGE_KEY,
@@ -23,6 +22,8 @@ import {
   ROW_HEIGHT_COMFORTABLE,
   ROW_HEIGHT_COMPACT,
 } from "../../DataManager/Toolbar/DensityToggle";
+import { dmUserStorageKey } from "../../../utils/dm-user-storage";
+import { setStoredPageSize } from "../../Common/Pagination/Pagination";
 
 const injector = inject(({ store }) => {
   const { dataStore, currentView } = store;
@@ -55,6 +56,7 @@ const injector = inject(({ store }) => {
     onViewAnalytics: store.SDK?.onViewAnalytics,
     onViewReviewerAnalytics: store.SDK?.onViewReviewerAnalytics,
     RowContextMenuComponent: store.SDK?.RowContextMenuComponent,
+    target: currentView?.target ?? "tasks",
   };
 
   return props;
@@ -82,11 +84,12 @@ export const DataView = injector(
     onViewAnalytics,
     onViewReviewerAnalytics,
     RowContextMenuComponent,
+    target = "tasks",
     ...props
   }) => {
     const [datasetStatusID, setDatasetStatusID] = useState(store.SDK.dataset?.status?.id);
     const [density, setDensity] = useState(() => {
-      return localStorage.getItem(DENSITY_STORAGE_KEY) ?? DENSITY_COMFORTABLE;
+      return localStorage.getItem(dmUserStorageKey(DENSITY_STORAGE_KEY)) ?? DENSITY_COMFORTABLE;
     });
     const focusedItem = useMemo(() => {
       return props.focusedItem;
@@ -103,11 +106,14 @@ export const DataView = injector(
     }, []);
 
     const loadMore = useCallback(async () => {
+      // Task lists use explicit page navigation below; infinite scroll would append pages
+      // and fight pagination (and load unbounded rows on large filters).
+      if (target === "tasks" && store.SDK.type !== "DE") return Promise.resolve();
       if (!dataStore.hasNextPage || dataStore.loading) return Promise.resolve();
 
       await dataStore.fetch({ interaction: "scroll" });
       return Promise.resolve();
-    }, [dataStore]);
+    }, [dataStore, target, store.SDK.type]);
 
     const isItemLoaded = useCallback(
       (data, index) => {
@@ -265,7 +271,7 @@ export const DataView = injector(
                 onLabelAllTasks={() => {
                   // Use the same logic as the main Label All Tasks button
                   // Set localStorage to indicate "label all" mode (same as main button)
-                  localStorage.setItem("dm:labelstream:mode", "all");
+                  localStorage.setItem(dmUserStorageKey("dm:labelstream:mode"), "all");
 
                   // Start label stream mode (DataManager's equivalent of navigating to labeling)
                   store.startLabelStream();
@@ -360,52 +366,152 @@ export const DataView = injector(
 
     const rowHeight = density === DENSITY_COMPACT ? ROW_HEIGHT_COMPACT : ROW_HEIGHT_COMFORTABLE;
 
+    const showTaskPagination = target === "tasks" && total > 0 && store.SDK.type !== "DE";
+    const page = Math.max(1, dataStore.page || 1);
+    const totalPages = Math.max(1, dataStore.totalPages || 1);
+    const pageSizeOptions = [...new Set([10, 20, 30, 50, 100, dataStore.pageSize])].sort((a, b) => a - b);
+
+    const [jumpPageInput, setJumpPageInput] = useState(() => String(page));
+    useEffect(() => {
+      setJumpPageInput(String(page));
+    }, [page]);
+
+    const applyJumpToPage = useCallback(() => {
+      const n = Number.parseInt(String(jumpPageInput).trim(), 10);
+      if (!Number.isFinite(n) || n < 1 || n > totalPages) return;
+      dataStore.fetch({ pageNumber: n });
+    }, [dataStore, jumpPageInput, totalPages]);
+
+    const taskPaginationFooter = showTaskPagination ? (
+      <div
+        className={cn("data-view-dm").elem("pagination").toClassName()}
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: 8,
+          padding: "10px 12px",
+          borderTop: "1px solid var(--color-neutral-border, #e5e5e5)",
+          fontSize: 13,
+        }}
+      >
+        <Button
+          size="small"
+          look="outlined"
+          disabled={page <= 1 || dataStore.loading}
+          onClick={() => dataStore.fetch({ pageNumber: page - 1 })}
+        >
+          上一页
+        </Button>
+        <span>
+          第 {page} / {totalPages} 页 · 共 {total} 条
+        </span>
+        <Button
+          size="small"
+          look="outlined"
+          disabled={page >= totalPages || dataStore.loading}
+          onClick={() => dataStore.fetch({ pageNumber: page + 1 })}
+        >
+          下一页
+        </Button>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span>跳转到</span>
+          <input
+            type="number"
+            min={1}
+            max={totalPages}
+            value={jumpPageInput}
+            disabled={dataStore.loading}
+            onChange={(e) => setJumpPageInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                applyJumpToPage();
+              }
+            }}
+            style={{ width: 56, padding: "4px 6px" }}
+            aria-label="页码"
+          />
+          <span>页</span>
+          <Button size="small" look="outlined" disabled={dataStore.loading} onClick={applyJumpToPage}>
+            跳转
+          </Button>
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
+          每页
+          <select
+            value={dataStore.pageSize}
+            disabled={dataStore.loading}
+            onChange={(e) => {
+              const nextSize = Number.parseInt(e.target.value, 10);
+              setStoredPageSize("tasks", nextSize);
+              dataStore.fetch({ pageNumber: 1, pageSize: nextSize });
+            }}
+            style={{ minWidth: 64, padding: "2px 6px" }}
+          >
+            {pageSizeOptions.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          条
+        </label>
+      </div>
+    ) : null;
+
     const content =
       view.root.isLabeling || viewType === "list" ? (
-        <Table
-          view={view}
-          data={data}
-          rowHeight={rowHeight}
-          total={total}
-          loadMore={loadMore}
-          fitContent={isLabeling}
-          columns={columns}
-          hiddenColumns={hiddenColumns}
-          cellViews={CellViews}
-          decoration={decoration}
-          order={view.ordering}
-          focusedItem={focusedItem}
-          isItemLoaded={isItemLoaded}
-          sortingEnabled={view.type === "list"}
-          columnHeaderExtra={columnHeaderExtra}
-          selectedItems={selectedItems}
-          onSelectAll={onSelectAll}
-          onSelectRow={onRowSelect}
-          onRangeSelect={onRangeSelect}
-          onRowClick={onRowClick}
-          stopInteractions={isLocked}
-          onTypeChange={(col, type) => col.original.setType(type)}
-          onColumnResize={(col, width) => {
-            col.original.setWidth(width);
-          }}
-          onColumnReset={(col) => {
-            col.original.resetWidth();
-          }}
-          onDensityChange={setDensity}
-          onViewAnalytics={onViewAnalytics}
-          onViewReviewerAnalytics={onViewReviewerAnalytics}
-          RowContextMenuComponent={RowContextMenuComponent}
-        />
+        <>
+          <Table
+            view={view}
+            data={data}
+            rowHeight={rowHeight}
+            total={total}
+            loadMore={loadMore}
+            fitContent={isLabeling}
+            columns={columns}
+            hiddenColumns={hiddenColumns}
+            cellViews={CellViews}
+            decoration={decoration}
+            order={view.ordering}
+            focusedItem={focusedItem}
+            isItemLoaded={isItemLoaded}
+            sortingEnabled={view.type === "list"}
+            columnHeaderExtra={columnHeaderExtra}
+            selectedItems={selectedItems}
+            onSelectAll={onSelectAll}
+            onSelectRow={onRowSelect}
+            onRangeSelect={onRangeSelect}
+            onRowClick={onRowClick}
+            stopInteractions={isLocked}
+            onTypeChange={(col, type) => col.original.setType(type)}
+            onColumnResize={(col, width) => {
+              col.original.setWidth(width);
+            }}
+            onColumnReset={(col) => {
+              col.original.resetWidth();
+            }}
+            onDensityChange={setDensity}
+            onViewAnalytics={onViewAnalytics}
+            onViewReviewerAnalytics={onViewReviewerAnalytics}
+            RowContextMenuComponent={RowContextMenuComponent}
+          />
+          {taskPaginationFooter}
+        </>
       ) : (
-        <GridView
-          view={view}
-          data={data}
-          fields={columns}
-          loadMore={loadMore}
-          onChange={(id) => view.toggleSelected(id)}
-          hiddenFields={hiddenColumns}
-          stopInteractions={isLocked}
-        />
+        <>
+          <GridView
+            view={view}
+            data={data}
+            fields={columns}
+            loadMore={loadMore}
+            onChange={(id) => view.toggleSelected(id)}
+            hiddenFields={hiddenColumns}
+            stopInteractions={isLocked}
+          />
+          {taskPaginationFooter}
+        </>
       );
 
     useShortcut("dm.focus-previous", () => {

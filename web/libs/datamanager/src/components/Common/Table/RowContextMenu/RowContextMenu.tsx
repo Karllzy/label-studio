@@ -214,8 +214,7 @@ export const RowContextMenu: FC<RowContextMenuProps> = ({
   // Check if task has annotators (for View Annotator Performance)
   // Use annotators array which only contains actual annotators, not predictions
   const hasAnnotators = row.annotators && row.annotators.length > 0;
-  const annotatorCount = row.annotators?.length ?? 0;
-  const annotatorLabel = annotatorCount === 1 ? "Annotator" : "Annotators";
+  const annotatorLabel = "标注员";
 
   // Create dropdown ref for context
   const dropdownRef = useRef(null);
@@ -247,30 +246,30 @@ export const RowContextMenu: FC<RowContextMenuProps> = ({
             data-testid="menu-item-compare-annotations"
             icon={<IconViewAll />}
           >
-            Compare All Annotations
+            对比全部标注
           </Menu.Item>
 
           <Menu.Divider />
 
           {canCopyCellContent && (
             <Menu.Item onClick={handleCopyCellContent} data-testid="menu-item-copy-cell" icon={<IconCopyOutline />}>
-              Copy Cell Contents
+              复制单元格内容
             </Menu.Item>
           )}
 
           <Menu.Item onClick={handleCopyTaskId} data-testid="menu-item-copy-task-id" icon={<IconCopyOutline />}>
-            Copy Task ID
+            复制任务 ID
           </Menu.Item>
 
           <Menu.Item onClick={handleViewTaskSource} data-testid="menu-item-view-source" icon={<IconBraces />}>
-            View Task Source
+            查看任务源数据
           </Menu.Item>
 
           {onViewAnalytics && hasAnnotators && (
             <>
               <Menu.Divider />
               <Menu.Item onClick={handleViewAnalytics} data-testid="menu-item-view-analytics" icon={<IconUserStats />}>
-                View {annotatorLabel} Performance
+                查看{annotatorLabel}绩效
               </Menu.Item>
             </>
           )}

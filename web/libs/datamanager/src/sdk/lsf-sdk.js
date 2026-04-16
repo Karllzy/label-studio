@@ -9,6 +9,8 @@ import {
   isFF,
 } from "../utils/feature-flags";
 import { isActive, FF_FIT_720_LAZY_LOAD_ANNOTATIONS } from "@humansignal/core/lib/utils/feature-flags";
+import { History } from "../utils/history";
+import { dmUserStorageKey } from "../utils/dm-user-storage";
 import { isDefined } from "../utils/utils";
 import { Modal } from "../components/Common/Modal/Modal";
 import { CommentsSdk } from "./comments-sdk";
@@ -81,6 +83,116 @@ export const SUPPORT_URL_REQUEST_ID_PARAM = "tf_37934448633869"; // request_id f
 const OVERLAP_TOAST_ID = "overlap-reached-toast";
 
 export class LSFWrapper {
+  /** Legacy deep-link: ?review=1 opens review chrome (same as selecting a pending annotation). */
+  isPendingReviewMode() {
+    if (this.labelStream || !this.project?.require_review) return false;
+    if (this.project?.can_review === false) return false;
+    const r = History.getParams().review;
+    if (r === undefined || r === null || r === "") return false;
+    const s = String(r).toLowerCase();
+    return s === "1" || s === "true" || s === "yes";
+  }
+
+  isSelectedAnnotationPendingReview() {
+    const sel = this.lsf?.annotationStore?.selected;
+    if (!sel?.pk || sel.type === "prediction") return false;
+    if (sel.skipped) return false;
+    if (sel.review_status === "pending") return true;
+    const ann = this.task?.annotations?.find((a) => String(a.id) === String(sel.pk) || String(a.pk) === String(sel.pk));
+    return ann?.review_status === "pending" && ann?.was_cancelled !== true;
+  }
+
+  canShowReviewApproveActions() {
+    if (this.labelStream || !this.project?.require_review) return false;
+    if (this.project?.can_review === false) return false;
+    if (this.project?.my_project_role === "AN") return false;
+    const sel = this.lsf?.annotationStore?.selected;
+    if (!sel?.pk || sel.type === "prediction" || sel.skipped) return false;
+    return true;
+  }
+
+  shouldShowAdoptResultChrome() {
+    if (!this.canShowReviewApproveActions()) return false;
+    if (this.isSelectedAnnotationPendingReview()) return false;
+    const activeAnnotations = (this.task?.annotations ?? []).filter((a) => a?.was_cancelled !== true);
+    return activeAnnotations.length > 1;
+  }
+
+  /** Approve/reject chrome in explorer when the selected annotation is pending review. */
+  shouldShowPendingReviewChrome() {
+    if (!this.canShowReviewApproveActions()) return false;
+    if (this.isPendingReviewMode()) return this.isSelectedAnnotationPendingReview();
+    return this.isSelectedAnnotationPendingReview();
+  }
+
+  /**
+   * True if this annotation should go through review approve/reject flow (explorer / DM).
+   * Uses task list row when the LSF node has no review_status (e.g. lazy-loaded stubs).
+   */
+  _annotationAwaitingReview(annotation) {
+    if (!annotation?.pk || annotation.skipped || annotation.type === "prediction") return false;
+    if (!this.project?.require_review || this.project?.can_review === false || this.labelStream) return false;
+    if (annotation.review_status === "pending") return true;
+    const row = this.task?.annotations?.find(
+      (a) => String(a.id) === String(annotation.pk) || String(a.pk) === String(annotation.pk),
+    );
+    return row?.review_status === "pending" && row?.was_cancelled !== true;
+  }
+
+  _syncPendingReviewInterfaces() {
+    if (!this.lsf) return;
+    const reviewOn = this.shouldShowPendingReviewChrome();
+    const skipOn = this.isPendingReviewMode() || this.isSelectedAnnotationPendingReview();
+    const adoptOn = this.shouldShowAdoptResultChrome();
+    this.lsf.toggleInterface("review-approve", reviewOn);
+    this.lsf.toggleInterface("review-adopt", adoptOn);
+    this.lsf.toggleInterface("skip", skipOn);
+  }
+
+  canReviewAnnotations() {
+    return this.project?.can_review === true;
+  }
+
+  canInspectOtherAnnotations() {
+    if (this.canReviewAnnotations()) return true;
+    return this.project?.hide_annotations_for_annotators !== true;
+  }
+
+  async loadNextPendingReview(currentAnnotationId = null) {
+    if (!this.project?.id) return false;
+
+    const queue = await this.withinLoadingState(async () => {
+      return this.datamanager.apiCall("pendingReviews", {
+        projectID: this.project.id,
+      });
+    });
+
+    if (!Array.isArray(queue) || queue.length === 0) {
+      return false;
+    }
+
+    const nextItem = queue.find((item) => String(item.id) !== String(currentAnnotationId ?? "")) ?? queue[0];
+
+    if (!nextItem?.task_id || !nextItem?.id) {
+      return false;
+    }
+
+    await this.loadTask(nextItem.task_id, nextItem.id, true);
+    return true;
+  }
+
+  async refreshCurrentListContext() {
+    const store = this.datamanager?.store;
+    const currentView = store?.currentView;
+    const jobs = [];
+
+    if (currentView?.reload) jobs.push(currentView.reload());
+    if (store?.fetchProject) jobs.push(store.fetchProject());
+    if (jobs.length === 0) return;
+
+    await Promise.allSettled(jobs);
+  }
+
   /** @type {HTMLElement} */
   root = null;
 
@@ -159,6 +271,8 @@ export class LSFWrapper {
       interfaces.push("annotations:hide-info");
     }
 
+    const canInspectOtherAnnotations = this.canInspectOtherAnnotations();
+
     if (this.labelStream) {
       interfaces.push("infobar");
       if (!window.APP_SETTINGS.label_stream_navigation_disabled) interfaces.push("topbar:prevnext");
@@ -168,16 +282,16 @@ export class LSFWrapper {
       if (this.project.show_skip_button) {
         interfaces.push("skip");
       }
+
+      if (this.canReviewAnnotations()) {
+        interfaces.push("annotations:view-all", "annotations:tabs", "annotations:copy-link");
+      }
     } else {
-      interfaces.push(
-        "infobar",
-        "annotations:add-new",
-        "annotations:view-all",
-        "annotations:delete",
-        "annotations:tabs",
-        "predictions:tabs",
-        "annotations:copy-link",
-      );
+      interfaces.push("infobar", "annotations:add-new", "annotations:delete", "predictions:tabs");
+
+      if (canInspectOtherAnnotations) {
+        interfaces.push("annotations:view-all", "annotations:tabs", "annotations:copy-link");
+      }
     }
 
     if (this.datamanager.hasInterface("instruction")) {
@@ -240,6 +354,8 @@ export class LSFWrapper {
       onStorageInitialized: this.onStorageInitialized,
       onSubmitAnnotation: this.onSubmitAnnotation,
       onUpdateAnnotation: this.onUpdateAnnotation,
+      onAcceptAnnotation: this.onAcceptAnnotation,
+      onRejectAnnotation: this.onRejectAnnotation,
       onDeleteAnnotation: this.onDeleteAnnotation,
       onSkipTask: this.onSkipTask,
       onUnskipTask: this.onUnskipTask,
@@ -458,7 +574,10 @@ export class LSFWrapper {
 
     this.lsf.initializeStore(lsfTask);
 
+    this.lsf.attachHotkeys();
+
     await this.setAnnotation(annotationID, fromHistory || isRejectedQueue, selectPrediction);
+    this._syncPendingReviewInterfaces();
     this.setLoading(false);
 
     if (isFF(FF_FIT_1304_STRICT_OVERLAP) && this.overlapReached) {
@@ -730,7 +849,15 @@ export class LSFWrapper {
     if (this.canPreloadTask && isFF(FF_DEV_1752)) {
       await this.preloadTask();
     } else if (this.labelStream) {
-      await this.loadTask();
+      const streamMode = localStorage.getItem(dmUserStorageKey("dm:labelstream:mode"));
+      const urlTaskId = Number.parseInt(History.getParams().task ?? "", 10);
+      // "Filtered list" stream: open the task the user was already on (URL ?task=) when it is set,
+      // instead of always taking the global next_task cursor.
+      if (streamMode === "filtered" && Number.isFinite(urlTaskId) && urlTaskId > 0) {
+        await this.loadTask(urlTaskId);
+      } else {
+        await this.loadTask();
+      }
     }
 
     this.setLoading(false);
@@ -778,7 +905,7 @@ export class LSFWrapper {
 
   /** @private */
   showOperationToast(status, successMessage, errorAction, result) {
-    if (status === 200 || status === 201) {
+    if (typeof status === "number" && status >= 200 && status < 300) {
       this.datamanager.invoke("toast", { message: successMessage, type: "info" });
     } else if (status !== undefined) {
       // Skip toast for errors that are handled by global modal handlers via display_context
@@ -827,6 +954,10 @@ export class LSFWrapper {
     }
   }
 
+  getResponseStatus(result) {
+    return result?.$meta?.status ?? result?.status ?? result?.response?.status ?? result?.response?.status_code;
+  }
+
   /** @private */
   onSubmitAnnotation = async () => {
     // Prevent submission if overlap is reached (only when feature flag is enabled)
@@ -851,7 +982,7 @@ export class LSFWrapper {
       false,
       loadNext,
     );
-    const status = result?.$meta?.status;
+    const status = this.getResponseStatus(result);
 
     this.showOperationToast(status, "Annotation saved successfully", "Annotation is not saved", result);
 
@@ -871,6 +1002,9 @@ export class LSFWrapper {
   /** @private */
   onUpdateAnnotation = async (ls, annotation, extraData) => {
     const { task } = this;
+    // Capture before save: after a successful approve, chrome checks would flip to false and
+    // we would wrongly reload the current task (tabs) instead of the next pending review.
+    const awaitingReviewApprove = this._annotationAwaitingReview(annotation);
     const serializedAnnotation = this.prepareData(annotation);
     const exitStream = this.shouldExitStream();
 
@@ -892,9 +1026,9 @@ export class LSFWrapper {
         { errorHandler: errorHandlerAllowSpecialErrors },
       );
     });
-    const status = result?.$meta?.status;
+    const status = this.getResponseStatus(result);
 
-    this.showOperationToast(status, "Annotation updated successfully", "Annotation is not updated", result);
+    this.showOperationToast(status, "标注已更新", "标注未保存", result);
 
     this.datamanager.invoke("updateAnnotation", ls, annotation, result);
 
@@ -904,10 +1038,40 @@ export class LSFWrapper {
       invalidateDistributionCache(task.id);
     }
 
-    if (exitStream) return this.exitStream();
+    if (exitStream) {
+      this.exitStream();
+      return { status, didAutoReview: false };
+    }
 
     if (status >= 400) {
-      return;
+      return { status, didAutoReview: false };
+    }
+
+    if (awaitingReviewApprove) {
+      const reviewResult = await this.withinLoadingState(async () => {
+        return this.datamanager.apiCall(
+          "reviewAnnotation",
+          { annotationID: annotation.pk },
+          { body: { action: "approve", comment: "" } },
+          { errorHandler: errorHandlerAllowSpecialErrors },
+        );
+      });
+      const reviewStatus = this.getResponseStatus(reviewResult);
+
+      if (reviewStatus >= 400) {
+        this.showOperationToast(reviewStatus, "标注已保存，但审核通过失败", "审核通过失败", reviewResult);
+        await this.loadTask(this.task.id, annotation.pk, true);
+        return { status, reviewStatus, didAutoReview: true };
+      }
+
+      this.showOperationToast(reviewStatus, "已通过审核", "操作失败", reviewResult);
+      await this.refreshCurrentListContext();
+      const hasNextPendingReview = await this.loadNextPendingReview(annotation.pk);
+
+      if (!hasNextPendingReview) {
+        await this.datamanager.store.closeLabeling();
+      }
+      return { status, reviewStatus, didAutoReview: true };
     }
 
     const isRejectedQueue = isDefined(task.default_selected_annotation);
@@ -918,6 +1082,45 @@ export class LSFWrapper {
     } else {
       await this.loadTask(this.task.id, annotation.pk, true);
     }
+    return { status, didAutoReview: false };
+  };
+
+  /**
+   * Direct approve without persisting a new annotation revision (no local edits).
+   * Registered as onAcceptAnnotation so Label Studio can invoke the review API.
+   */
+  onAcceptAnnotation = async (_ls, { isDirty, entity }) => {
+    if (!entity?.pk) return;
+    if (isDirty) {
+      const updateResult = await this.onUpdateAnnotation(_ls, entity, {});
+      if (!updateResult || updateResult.status >= 400 || updateResult.didAutoReview) return;
+    }
+    const reviewResult = await this.withinLoadingState(async () => {
+      return this.datamanager.apiCall(
+        "reviewAnnotation",
+        { annotationID: entity.pk },
+        { body: { action: "approve", comment: "" } },
+        { errorHandler: errorHandlerAllowSpecialErrors },
+      );
+    });
+    const reviewStatus = this.getResponseStatus(reviewResult);
+    if (reviewStatus >= 400) {
+      this.showOperationToast(reviewStatus, "审核通过失败", "审核通过失败", reviewResult);
+      return;
+    }
+    this.showOperationToast(reviewStatus, "已通过审核", "操作失败", reviewResult);
+    invalidateAnnotationCache(entity.pk);
+    if (this.task?.id) invalidateDistributionCache(this.task.id);
+    await this.refreshCurrentListContext();
+    const hasNext = await this.loadNextPendingReview(entity.pk);
+    if (!hasNext) {
+      await this.datamanager.store.closeLabeling();
+    }
+  };
+
+  /** Reject from LSF top/bottom bar — forwards to review API + next pending task. */
+  onRejectAnnotation = async (_ls, { comment } = {}) => {
+    await this.onRejectReview(comment || "");
   };
 
   deleteDraft = async (id) => {
@@ -1032,6 +1235,11 @@ export class LSFWrapper {
   };
 
   onSkipTask = async (_, { comment } = {}) => {
+    if (this.shouldShowPendingReviewChrome()) {
+      await this.onRejectReview(comment);
+      return;
+    }
+
     // Prevent skipping if overlap is reached (only when feature flag is enabled)
     if (isFF(FF_FIT_1304_STRICT_OVERLAP) && this.overlapReached) {
       this.showOverlapReachedMessage();
@@ -1074,9 +1282,80 @@ export class LSFWrapper {
       true,
       this.shouldLoadNext(),
     );
-    const status = result?.$meta?.status;
+    const status = this.getResponseStatus(result);
 
     this.showOperationToast(status, "Task skipped successfully", "Task is not skipped", result);
+  };
+
+  onRejectReview = async (comment = "") => {
+    const annotation = this.lsf?.annotationStore?.selected;
+    if (!annotation?.pk) return;
+
+    const result = await this.withinLoadingState(async () => {
+      return this.datamanager.apiCall(
+        "reviewAnnotation",
+        { annotationID: annotation.pk },
+        { body: { action: "reject", comment: comment || "" } },
+        { errorHandler: errorHandlerAllowSpecialErrors },
+      );
+    });
+    const status = this.getResponseStatus(result);
+
+    this.showOperationToast(status, "已驳回", "驳回失败", result);
+
+    if (status < 400) {
+      invalidateAnnotationCache(annotation.pk);
+      if (this.task?.id) invalidateDistributionCache(this.task.id);
+      await this.refreshCurrentListContext();
+      const hasNextPendingReview = await this.loadNextPendingReview(annotation.pk);
+
+      if (!hasNextPendingReview) {
+        await this.datamanager.store.closeLabeling();
+      }
+    }
+  };
+
+  onGroundTruth = async (_ls, annotation, value) => {
+    if (!annotation?.pk || !this.task?.id) return;
+
+    const body = this.prepareData(annotation);
+    body.ground_truth = value;
+
+    const result = await this.withinLoadingState(async () => {
+      return this.datamanager.apiCall(
+        "updateAnnotation",
+        {
+          taskID: this.task.id,
+          annotationID: annotation.pk,
+        },
+        { body },
+        { errorHandler: errorHandlerAllowSpecialErrors },
+      );
+    });
+
+    const status = this.getResponseStatus(result);
+
+    if (status >= 400) {
+      annotation.setGroundTruth(!value, false);
+      this.showOperationToast(
+        status,
+        value ? "已采纳为最终结果" : "已取消采纳",
+        value ? "采纳失败" : "取消采纳失败",
+        result,
+      );
+      return;
+    }
+
+    invalidateAnnotationCache(annotation.pk);
+    invalidateDistributionCache(this.task.id);
+    this.showOperationToast(
+      status,
+      value ? "已采纳为最终结果" : "已取消采纳",
+      value ? "采纳失败" : "取消采纳失败",
+      result,
+    );
+    await this.refreshCurrentListContext();
+    await this.loadTask(this.task.id, annotation.pk, true);
   };
 
   onUnskipTask = async () => {
@@ -1226,13 +1505,14 @@ export class LSFWrapper {
         await this._hydrateStubAnnotation(currentSelected);
       }
     }
+    this._syncPendingReviewInterfaces();
   };
 
   // FIT-720: Hydrate a stub annotation by fetching full data from API
   _hydrateStubAnnotation = async (annotation) => {
     // Check if annotation is a stub (no regions/results)
     // Stubs have empty results - check via the areas map which holds deserialized regions
-    const hasRegions = annotation.areas?.size > 0;
+    const _hasRegions = annotation.areas?.size > 0;
     const isUserGenerated = annotation.userGenerate && !annotation.sentUserGenerate;
 
     // Also check versions.result to see if the annotation was loaded with actual results

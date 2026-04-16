@@ -1,0 +1,30 @@
+title: Interactive Segmentation with Points and Masks
+type: community
+group: Computer Vision
+order: 2
+image: /static/templates/semantic-segmentation-with-masks.png
+details: |
+  <h1>Use point prompts to generate AI masks</h1>
+  <dl>
+    <dt>Recommended For</dt>
+    <dd>SAM/SAM2/SAM3 interactive segmentation, defect inspection, medical delineation, fine-grained image editing</dd>
+    <dt>How It Works</dt>
+    <dd>Select the smart keypoint tool, click on the image, and let the model return a mask that you can further edit.</dd>
+    <dt>Important</dt>
+    <dd>Enable Interactive preannotations in Machine Learning settings and connect an interactive ML backend.</dd>
+  </dl>
+config: |
+  <View>
+    <Header value="选择标签后，使用智能点提示生成掩码"/>
+    <Image name="image" value="$image" zoom="true" zoomControl="true"/>
+
+    <BrushLabels name="label" toName="image">
+      <Label value="Airplane" background="#3b82f6"/>
+      <Label value="Car" background="#ef4444"/>
+    </BrushLabels>
+
+    <KeyPointLabels name="prompt" toName="image" smart="true">
+      <Label value="Airplane" background="#3b82f6"/>
+      <Label value="Car" background="#ef4444"/>
+    </KeyPointLabels>
+  </View>

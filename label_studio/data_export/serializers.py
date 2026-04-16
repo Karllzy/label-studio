@@ -252,3 +252,41 @@ class BaseExportDataSerializerForInteractive(InteractiveMixin, BaseExportDataSer
 
 
 ExportDataSerializer = load_func(settings.EXPORT_DATA_SERIALIZER)
+
+
+class PackagedExportSerializer(serializers.ModelSerializer):
+    created_by = UserSimpleSerializer(required=False, read_only=True)
+    zip_filename = serializers.CharField(read_only=True)
+    zip_size = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        from .models import PackagedExport
+
+        model = PackagedExport
+        fields = [
+            'id',
+            'created_at',
+            'finished_at',
+            'status',
+            'export_format',
+            'target_path',
+            'include_resources',
+            'counters',
+            'created_by',
+            'zip_filename',
+            'zip_size',
+        ]
+        read_only_fields = ['id', 'created_at', 'finished_at', 'status', 'counters']
+
+
+class PackagedExportCreateSerializer(serializers.Serializer):
+    export_format = serializers.CharField(default='JSON', help_text='Export format (JSON, CSV, COCO, etc.)')
+    target_path = serializers.CharField(
+        required=False,
+        default='',
+        help_text='Server directory for export. Leave empty to use default export directory.',
+    )
+    include_resources = serializers.BooleanField(
+        default=False,
+        help_text='Include original data files (images, audio, etc.) in the export.',
+    )

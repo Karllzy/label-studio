@@ -286,7 +286,7 @@ export const Table = observer(
         <div className={cn("table-toolbar").mod({ visible: toolbarVisible }).toClassName()}>
           <FieldsButton
             multiSelect={true}
-            title={"Columns"}
+            title={"列"}
             size="small"
             tooltip={"Customize Columns"}
             data-testid="columns-picker-quickview"
@@ -418,23 +418,31 @@ export const Table = observer(
       [props.rowHeight, data, focusedItem],
     );
 
+    // Index 0 is the sticky header; data rows use index 1..data.length (see renderRow: dataIndex = index - 1).
+    // Keys must include row `updated` so after labeling saves/refetches the virtual list remounts cells with fresh fields
+    // (completed_at, review state, etc.) instead of reusing stale row content from an incorrect or stale key.
     const itemKey = useCallback(
       (index) => {
-        if (index > data.length - 1) {
-          return index;
+        if (index === 0) return "dm-table-header";
+        const dataIndex = index - 1;
+        if (dataIndex < 0 || dataIndex >= data.length) {
+          return `dm-table-pad-${index}`;
         }
-        return data[index]?.key ?? index;
+        const row = data[dataIndex];
+        if (row?.key != null) return `${row.key}-${row.updated ?? ""}`;
+        return `${row.id}-${row.updated ?? ""}`;
       },
       [data],
     );
 
     useEffect(() => {
       const listComponent = listRef.current?._listRef;
+      const focusedIndex = data.indexOf(focusedItem);
 
-      if (listComponent) {
-        listComponent.scrollToItem(data.indexOf(focusedItem), "center");
+      if (listComponent && focusedIndex >= 0) {
+        listComponent.scrollToItem(focusedIndex, "center");
       }
-    }, [data]);
+    }, [data, focusedItem]);
     const tableWrapper = useRef();
 
     const handleScroll = useCallback(

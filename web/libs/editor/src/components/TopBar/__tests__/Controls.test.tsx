@@ -94,12 +94,12 @@ describe("TopBar Controls", () => {
       </Provider>,
     );
 
-    const skipButton = getByLabelText("Skip current task");
+    const skipButton = getByLabelText("跳过当前任务");
     // In LSO, skip button should NOT be disabled even when allow_skip=false
     expect(skipButton).not.toBeDisabled();
 
     const tooltip = skipButton.closest('[data-testid="tooltip"]');
-    expect(tooltip).toHaveAttribute("title", "Cancel (skip) task: [ Ctrl+Space ]");
+    expect(tooltip).toHaveAttribute("title", "跳过任务 [ Ctrl+Space ]");
   });
 
   test("Skip button disabled when allow_skip=false in LSE (enterprise)", () => {
@@ -124,11 +124,11 @@ describe("TopBar Controls", () => {
       </Provider>,
     );
 
-    const skipButton = getByLabelText("Skip current task");
+    const skipButton = getByLabelText("跳过当前任务");
     expect(skipButton).toBeDisabled();
 
     const tooltip = skipButton.closest('[data-testid="tooltip"]');
-    expect(tooltip).toHaveAttribute("title", "This task cannot be skipped");
+    expect(tooltip).toHaveAttribute("title", "此任务不可跳过");
   });
 
   test("Skip button enabled when allow_skip=true in LSE (enterprise)", () => {
@@ -153,11 +153,11 @@ describe("TopBar Controls", () => {
       </Provider>,
     );
 
-    const skipButton = getByLabelText("Skip current task");
+    const skipButton = getByLabelText("跳过当前任务");
     expect(skipButton).not.toBeDisabled();
 
     const tooltip = skipButton.closest('[data-testid="tooltip"]');
-    expect(tooltip).toHaveAttribute("title", "Cancel (skip) task: [ Ctrl+Space ]");
+    expect(tooltip).toHaveAttribute("title", "跳过任务 [ Ctrl+Space ]");
   });
 
   test("Skip action blocked when allow_skip=false in LSE (enterprise)", () => {
@@ -182,7 +182,7 @@ describe("TopBar Controls", () => {
       </Provider>,
     );
 
-    const skipButton = getByLabelText("Skip current task");
+    const skipButton = getByLabelText("跳过当前任务");
     fireEvent.click(skipButton);
 
     expect(mockStore.skipTask).not.toHaveBeenCalled();
@@ -211,11 +211,11 @@ describe("TopBar Controls", () => {
       </Provider>,
     );
 
-    const skipButton = getByLabelText("Skip current task");
+    const skipButton = getByLabelText("跳过当前任务");
     expect(skipButton).not.toBeDisabled();
 
     const tooltip = skipButton.closest('[data-testid="tooltip"]');
-    expect(tooltip).toHaveAttribute("title", "Cancel (skip) task: [ Ctrl+Space ]");
+    expect(tooltip).toHaveAttribute("title", "跳过任务 [ Ctrl+Space ]");
   });
 
   test("Skip button enabled when allow_skip=false but user is Manager (MA) in LSE", () => {
@@ -240,7 +240,7 @@ describe("TopBar Controls", () => {
       </Provider>,
     );
 
-    const skipButton = getByLabelText("Skip current task");
+    const skipButton = getByLabelText("跳过当前任务");
     expect(skipButton).not.toBeDisabled();
   });
 
@@ -266,7 +266,7 @@ describe("TopBar Controls", () => {
       </Provider>,
     );
 
-    const skipButton = getByLabelText("Skip current task");
+    const skipButton = getByLabelText("跳过当前任务");
     expect(skipButton).toBeDisabled();
   });
 });

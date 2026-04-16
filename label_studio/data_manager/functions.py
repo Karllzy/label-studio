@@ -53,16 +53,19 @@ def get_all_columns(project, *_):
         data_types.pop(settings.DATA_UNDEFINED_NAME, None)
     logger.info(f'get_all_columns: project_id={project.id} {data_types=} {project_data_types=}')
 
+    labeling_visible_media_types = {'Image', 'Video', 'Audio', 'AudioPlus'}
+
     for key, data_type in list(data_types.items()):  # make data types from labeling config first
         column = {
             'id': key,
-            'title': key if key != settings.DATA_UNDEFINED_NAME else 'data',
+            'title': key if key != settings.DATA_UNDEFINED_NAME else '数据',
             'type': data_type if data_type in ['Image', 'Audio', 'AudioPlus', 'Video', 'Unknown'] else 'String',
             'target': 'tasks',
             'parent': 'data',
+            # Explore: always show media/data previews; Labeling: keep only media previews visible by default
             'visibility_defaults': {
                 'explore': True,
-                'labeling': key in project_data_types or key == settings.DATA_UNDEFINED_NAME,
+                'labeling': data_type in labeling_visible_media_types,
             },
             'project_defined': True,
         }
@@ -75,7 +78,7 @@ def get_all_columns(project, *_):
     # --- Data root ---
     data_root = {
         'id': 'data',
-        'title': 'data',
+        'title': '数据',
         'type': 'List',
         'target': 'tasks',
         'children': task_data_children,
@@ -86,11 +89,11 @@ def get_all_columns(project, *_):
         # --- Tasks ---
         {
             'id': 'id',
-            'title': 'ID',
+            'title': '全局 ID',
             'type': 'Number',
-            'help': 'Task ID',
+            'help': '数据库中的任务主键',
             'target': 'tasks',
-            'visibility_defaults': {'explore': True, 'labeling': False},
+            'visibility_defaults': {'explore': False, 'labeling': False},
             'project_defined': False,
         }
     ]
@@ -98,11 +101,11 @@ def get_all_columns(project, *_):
     result['columns'] += [
         {
             'id': 'inner_id',
-            'title': 'Inner ID',
+            'title': '项目内序号',
             'type': 'Number',
-            'help': 'Internal task ID starting from 1 for the current project',
+            'help': '本项目内从 1 递增的序号，通常与导入顺序一致',
             'target': 'tasks',
-            'visibility_defaults': {'explore': False, 'labeling': False},
+            'visibility_defaults': {'explore': True, 'labeling': False},
             'project_defined': False,
         }
     ]
@@ -115,161 +118,174 @@ def get_all_columns(project, *_):
     result['columns'] += [
         {
             'id': 'completed_at',
-            'title': 'Completed',
+            'title': '最近完成时间',
             'type': 'Datetime',
             'target': 'tasks',
-            'help': 'Last annotation date',
+            'help': '最近一次标注提交时间（可与「标注人」列对照查看）',
             'visibility_defaults': {'explore': True, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'total_annotations',
-            'title': 'Annotations',
+            'title': '标注数',
             'type': 'Number',
             'target': 'tasks',
-            'help': 'Total annotations per task',
-            'visibility_defaults': {'explore': True, 'labeling': True},
+            'help': '该任务上的标注条数',
+            'visibility_defaults': {'explore': True, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'cancelled_annotations',
-            'title': 'Cancelled',
+            'title': '已跳过',
             'type': 'Number',
             'target': 'tasks',
-            'help': 'Total cancelled (skipped) annotations',
+            'help': '跳过/取消的标注次数',
             'visibility_defaults': {'explore': True, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'total_predictions',
-            'title': 'Predictions',
+            'title': '预标注',
             'type': 'Number',
             'target': 'tasks',
-            'help': 'Total predictions per task',
+            'help': '预测/预标注条数',
             'visibility_defaults': {'explore': True, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'annotators',
-            'title': 'Annotated by',
+            'title': '标注人',
             'type': 'List',
             'target': 'tasks',
-            'help': 'All users who completed the task',
+            'help': '参与完成标注的用户；审核信息见企业版或单独审核列',
             **({'schema': {'items': project_members}} if not remove_members_schema else {}),
             'visibility_defaults': {'explore': True, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'annotations_results',
-            'title': 'Annotation results',
+            'title': '标注结果',
             'type': 'String',
             'target': 'tasks',
-            'help': 'Annotation results stacked over all annotations',
+            'help': '合并后的标注结果摘要',
             'visibility_defaults': {'explore': False, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'annotations_ids',
-            'title': 'Annotation IDs',
+            'title': '标注 ID',
             'type': 'String',
             'target': 'tasks',
-            'help': 'Annotation IDs stacked over all annotations',
+            'help': '各条标注的 ID',
             'visibility_defaults': {'explore': False, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'predictions_score',
-            'title': 'Prediction score',
+            'title': '预测分数',
             'type': 'Number',
             'target': 'tasks',
-            'help': 'Average prediction score over all task predictions',
+            'help': '预测结果的平均分数',
             'visibility_defaults': {'explore': False, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'predictions_model_versions',
-            'title': 'Prediction model versions',
+            'title': '预测模型版本',
             'type': 'List',
             'target': 'tasks',
-            'help': 'Model versions aggregated over all predictions',
+            'help': '预测使用的模型版本',
             'schema': {'items': project.get_model_versions(), 'multiple': True},
             'visibility_defaults': {'explore': False, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'predictions_results',
-            'title': 'Prediction results',
+            'title': '预测结果',
             'type': 'String',
             'target': 'tasks',
-            'help': 'Prediction results stacked over all predictions',
+            'help': '预测结果摘要',
             'visibility_defaults': {'explore': False, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'file_upload',
-            'title': 'Upload filename',
+            'title': '上传文件名',
             'type': 'String',
             'target': 'tasks',
-            'help': 'Filename of uploaded file',
+            'help': '本地上传时的文件名',
             'visibility_defaults': {'explore': False, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'storage_filename',
-            'title': 'Storage filename',
+            'title': '存储文件名',
             'type': 'String',
             'target': 'tasks',
-            'help': 'Filename from import storage',
+            'help': '从对象存储导入时的文件名',
             'visibility_defaults': {'explore': False, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'created_at',
-            'title': 'Created at',
+            'title': '创建时间',
             'type': 'Datetime',
             'target': 'tasks',
-            'help': 'Task creation time',
+            'help': '任务创建时间',
             'visibility_defaults': {'explore': False, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'updated_at',
-            'title': 'Updated at',
+            'title': '更新时间',
             'type': 'Datetime',
             'target': 'tasks',
-            'help': 'Task update time',
+            'help': '任务最后更新时间',
             'visibility_defaults': {'explore': False, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'updated_by',
-            'title': 'Updated by',
+            'title': '更新人',
             'type': 'List',
             'target': 'tasks',
-            'help': 'User who did the last task update',
+            'help': '最后更新该任务的用户',
             **({'schema': {'items': project_members}} if not remove_members_schema else {}),
             'visibility_defaults': {'explore': False, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'avg_lead_time',
-            'title': 'Lead Time',
+            'title': '平均耗时',
             'type': 'Time',
-            'help': 'Average lead time over all annotations',
+            'help': '标注平均用时',
             'target': 'tasks',
             'visibility_defaults': {'explore': False, 'labeling': False},
             'project_defined': False,
         },
         {
             'id': 'draft_exists',
-            'title': 'Drafts',
+            'title': '草稿',
             'type': 'Boolean',
-            'help': 'True if at least one draft exists for the task',
+            'help': '是否存在未提交的草稿',
             'target': 'tasks',
             'visibility_defaults': {'explore': False, 'labeling': False},
             'project_defined': False,
         },
     ]
+
+    if project.require_review:
+        result['columns'].append(
+            {
+                'id': 'pending_review',
+                'title': '待审核',
+                'type': 'Boolean',
+                'help': '是否存在待审核的标注（需开启「提交后需审核」）',
+                'target': 'tasks',
+                'visibility_defaults': {'explore': True, 'labeling': False},
+                'project_defined': False,
+            }
+        )
 
     result['columns'].append(data_root)
 
@@ -284,7 +300,7 @@ def get_prepare_params(request, project):
     # use filters and selected items from view
     view_id = int_from_request(request.GET, 'view', 0) or int_from_request(request.data, 'view', 0)
     if view_id > 0:
-        view = get_object_or_404(View, pk=view_id)
+        view = get_object_or_404(View, pk=view_id, user=request.user)
         if view.project.pk != project.pk:
             raise DataManagerException('Project and View mismatch')
         prepare_params = view.get_prepare_tasks_params(add_selected_items=True)

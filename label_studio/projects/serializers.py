@@ -31,6 +31,7 @@ from label_studio_sdk.label_interface.control_tags import (
     TimeSeriesLabelsTag,
     VideoRectangleTag,
 )
+from core.permissions import all_permissions
 from projects.models import Project, ProjectImport, ProjectOnboarding, ProjectReimport, ProjectSummary
 from rest_flex_fields import FlexFieldsModelSerializer
 from rest_framework import serializers
@@ -149,6 +150,13 @@ class ProjectSerializer(FlexFieldsModelSerializer):
     queue_total = serializers.SerializerMethodField()
     queue_done = serializers.SerializerMethodField()
     state = FSMStateField(read_only=True)  # FSM state - automatically uses annotation if present
+
+    my_project_role = serializers.SerializerMethodField(read_only=True)
+    is_project_owner = serializers.SerializerMethodField(read_only=True)
+    can_review = serializers.SerializerMethodField(read_only=True)
+    can_delete_tasks = serializers.SerializerMethodField(read_only=True)
+    can_assign_tasks = serializers.SerializerMethodField(read_only=True)
+    can_delete_project = serializers.SerializerMethodField(read_only=True)
 
     @property
     def user_id(self):
@@ -313,6 +321,17 @@ class ProjectSerializer(FlexFieldsModelSerializer):
             'queue_done',
             'config_suitable_for_bulk_annotation',
             'state',
+            'task_assignment_mode',
+            'reject_flow_mode',
+            'require_review',
+            'hide_completed_for_annotators',
+            'hide_annotations_for_annotators',
+            'my_project_role',
+            'is_project_owner',
+            'can_review',
+            'can_delete_tasks',
+            'can_assign_tasks',
+            'can_delete_project',
         ]
 
     def validate_label_config(self, value):
@@ -348,6 +367,51 @@ class ProjectSerializer(FlexFieldsModelSerializer):
             instance.model_version = ''
 
         return super().update(instance, validated_data)
+
+    def _request_user(self):
+        request = self.context.get('request')
+        if not request or not getattr(request.user, 'is_authenticated', False):
+            return None
+        return request.user
+
+    def get_my_project_role(self, obj):
+        user = self._request_user()
+        if not user:
+            return None
+        from projects.models import ProjectMember
+
+        m = ProjectMember.objects.filter(user=user, project=obj, enabled=True).first()
+        return m.role if m else None
+
+    def get_is_project_owner(self, obj):
+        user = self._request_user()
+        if not user:
+            return False
+        return obj.created_by_id == user.id
+
+    def get_can_review(self, obj):
+        user = self._request_user()
+        if not user:
+            return False
+        return user.has_perm(all_permissions.annotations_review, obj)
+
+    def get_can_delete_tasks(self, obj):
+        user = self._request_user()
+        if not user:
+            return False
+        return user.has_perm(all_permissions.tasks_delete, obj)
+
+    def get_can_assign_tasks(self, obj):
+        user = self._request_user()
+        if not user:
+            return False
+        return user.has_perm(all_permissions.tasks_assign, obj)
+
+    def get_can_delete_project(self, obj):
+        user = self._request_user()
+        if not user:
+            return False
+        return user.has_perm(all_permissions.projects_delete, obj)
 
     def get_queue_total(self, project) -> int:
         remain = project.tasks.filter(
@@ -496,3 +560,31 @@ class GetFieldsSerializer(serializers.Serializer):
     def validate_filter(self, value):
         if value in ['all', 'pinned_only', 'exclude_pinned']:
             return value
+
+
+class ProjectMemberSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(source='user.email', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', read_only=True)
+    last_name = serializers.CharField(source='user.last_name', read_only=True)
+    user_id = serializers.IntegerField(source='user.id', read_only=True)
+
+    class Meta:
+        from projects.models import ProjectMember
+        model = ProjectMember
+        fields = ['id', 'user_id', 'email', 'first_name', 'last_name', 'role', 'enabled', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+class ProjectMemberCreateSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField()
+    role = serializers.ChoiceField(choices=[('AD', 'Admin'), ('AN', 'Annotator'), ('RE', 'Reviewer')], default='AN')
+
+
+class ProjectWorkflowSerializer(serializers.ModelSerializer):
+    class Meta:
+        from projects.models import Project
+        model = Project
+        fields = [
+            'task_assignment_mode', 'reject_flow_mode', 'require_review',
+            'hide_completed_for_annotators', 'hide_annotations_for_annotators',
+        ]

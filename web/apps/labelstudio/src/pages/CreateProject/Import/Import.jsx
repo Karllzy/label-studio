@@ -4,16 +4,16 @@ import { IconCode, IconErrorAlt, IconFileUpload, IconInfoOutline, IconTrash, Ico
 import { cn as scn } from "@humansignal/shad/utils";
 import { useAtomValue } from "jotai";
 import Input from "libs/datamanager/src/components/Common/Input/Input";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useAPI } from "../../../providers/ApiProvider";
 import { cn } from "../../../utils/bem";
 import { unique } from "../../../utils/helpers";
 import { sampleDatasetAtom } from "../utils/atoms";
 import "./Import.prefix.css";
-import { Button, CodeBlock, SimpleCard, Spinner, Tooltip, Typography, Badge } from "@humansignal/ui";
+import { Button, Checkbox, CodeBlock, SimpleCard, Spinner, Tooltip, Typography, Badge } from "@humansignal/ui";
 import truncate from "truncate-middle";
 import samples from "./samples.json";
-import { importFiles } from "./utils";
+import { importFiles, chunkedUploadFile, isLargeFile } from "./utils";
 
 const importClass = cn("upload_page");
 const dropzoneClass = cn("dropzone");
@@ -22,6 +22,9 @@ const dropzoneClass = cn("dropzone");
 const FLASH_ANIMATION_DURATION = 2000; // 2 seconds
 const FILENAME_TRUNCATE_START = 24;
 const FILENAME_TRUNCATE_END = 24;
+
+/** If the user selects at least this many image files, show faster-import guidance before starting browser upload. */
+const BULK_IMAGE_UPLOAD_THRESHOLD = 80;
 
 function flatten(nested) {
   return [].concat(...nested);
@@ -155,7 +158,13 @@ export const ImportPage = ({
 }) => {
   const [error, setError] = useState();
   const [newlyUploadedFiles, setNewlyUploadedFiles] = useState(new Set());
+  const [uploadProgress, setUploadProgress] = useState({});
   const prevUploadedRef = useRef(new Set());
+  const pendingBulkFilesRef = useRef(null);
+  const [bulkImagePrompt, setBulkImagePrompt] = useState(null);
+  const [serverPath, setServerPath] = useState("");
+  const [serverRecursive, setServerRecursive] = useState(false);
+  const [serverImportBusy, setServerImportBusy] = useState(false);
   const api = useAPI();
   const projectConfigured = project?.label_config !== "<View></View>";
   const sampleConfig = useAtomValue(sampleDatasetAtom);
@@ -238,7 +247,7 @@ export const ImportPage = ({
       await loadFilesList(file_upload_ids);
       return res;
     },
-    [addColumns, loadFilesList],
+    [addColumns, loadFilesList, csvHandling, setCsvHandling, onWaiting],
   );
 
   // Track newly uploaded files for flash animation
@@ -293,24 +302,145 @@ export const ImportPage = ({
     [project, onFinish],
   );
 
-  const sendFiles = useCallback(
+  const performSendFiles = useCallback(
     (files) => {
+      files = [...files];
+
+      // Separate large files for chunked upload
+      const largeFiles = files.filter((f) => f.size && isLargeFile(f));
+      const normalFiles = files.filter((f) => !f.size || !isLargeFile(f));
+
+      // Upload large files via chunked upload
+      if (largeFiles.length > 0) {
+        const uploadLargeFiles = async () => {
+          for (const file of largeFiles) {
+            dispatch({ sending: [file] });
+            setUploadProgress((prev) => ({ ...prev, [file.name]: 0 }));
+
+            await chunkedUploadFile({
+              file,
+              project,
+              onProgress: ({ percent }) => {
+                setUploadProgress((prev) => ({ ...prev, [file.name]: percent }));
+              },
+              onError: (err) => {
+                onError(typeof err === "string" ? new Error(err) : err);
+                dispatch({ sent: [file] });
+                setUploadProgress((prev) => {
+                  const next = { ...prev };
+                  delete next[file.name];
+                  return next;
+                });
+              },
+              onFinish: async (res) => {
+                dispatch({ sent: [file] });
+                setUploadProgress((prev) => {
+                  const next = { ...prev };
+                  delete next[file.name];
+                  return next;
+                });
+                if (res?.file_upload_id) {
+                  dispatch({ ids: [res.file_upload_id] });
+                  await loadFilesList([res.file_upload_id]);
+                }
+              },
+            });
+          }
+
+          if (normalFiles.length === 0) {
+            onWaiting?.(false);
+          }
+        };
+        uploadLargeFiles();
+      }
+
+      // Upload normal files via standard multipart
+      if (normalFiles.length > 0) {
+        const fd = new FormData();
+        for (const f of normalFiles) {
+          fd.append(f.name, f);
+        }
+        return importFilesImmediately(normalFiles, fd);
+      } else if (largeFiles.length === 0) {
+        onWaiting?.(false);
+      }
+    },
+    [importFilesImmediately, project, loadFilesList, onWaiting, onError],
+  );
+
+  const sendFiles = useCallback(
+    (fileList) => {
       setError(null);
-      onWaiting?.(true);
-      files = [...files]; // they can be array-like object
-      const fd = new FormData();
+      const files = [...fileList];
 
       for (const f of files) {
         if (!allSupportedExtensions.includes(getFileExtension(f.name))) {
           onError(new Error(`The filetype of file "${f.name}" is not supported.`));
           return;
         }
-        fd.append(f.name, f);
       }
-      return importFilesImmediately(files, fd);
+
+      const imageCount = files.filter((f) =>
+        supportedExtensions.image.includes(getFileExtension(f.name)),
+      ).length;
+      if (imageCount >= BULK_IMAGE_UPLOAD_THRESHOLD) {
+        pendingBulkFilesRef.current = files;
+        setBulkImagePrompt({ imageCount, total: files.length });
+        return;
+      }
+
+      onWaiting?.(true);
+      performSendFiles(files);
     },
-    [importFilesImmediately],
+    [onError, onWaiting, performSendFiles],
   );
+
+  const continueBrowserBulkUpload = useCallback(() => {
+    const pending = pendingBulkFilesRef.current;
+    pendingBulkFilesRef.current = null;
+    setBulkImagePrompt(null);
+    if (!pending?.length) return;
+    onWaiting?.(true);
+    performSendFiles(pending);
+  }, [onWaiting, performSendFiles]);
+
+  const dismissBulkImagePrompt = useCallback(() => {
+    pendingBulkFilesRef.current = null;
+    setBulkImagePrompt(null);
+  }, []);
+
+  const bulkApiExample = useMemo(() => {
+    const base = typeof window !== "undefined" ? window.APP_SETTINGS?.hostname ?? "" : "";
+    const pk = project?.id ?? "<project_id>";
+    return `curl -H "Authorization: Token YOUR_TOKEN" \\\n  -X POST "${base}/api/projects/${pk}/import?commit_to_project=false" \\\n  -F "file=@your_tasks.json"`;
+  }, [project?.id]);
+
+  const localServerImportExample = useMemo(() => {
+    const base = typeof window !== "undefined" ? window.APP_SETTINGS?.hostname ?? "" : "";
+    const pk = project?.id ?? "<project_id>";
+    return `curl -H "Authorization: Token YOUR_TOKEN" -H "Content-Type: application/json" \\\n  -X POST "${base}/api/projects/${pk}/import/local-files" \\\n  -d '{"items":["path/under/LOCAL_FILES_DOCUMENT_ROOT"],"recursive":true}'`;
+  }, [project?.id]);
+
+  const runServerPathImport = useCallback(async () => {
+    const trimmed = serverPath.trim();
+    if (!trimmed) {
+      setError({ message: "请输入相对 LOCAL_FILES_DOCUMENT_ROOT 的路径（文件或文件夹）" });
+      return;
+    }
+    setError(null);
+    setServerImportBusy(true);
+    onWaiting?.(true);
+    const res = await api.callApi("importFromLocalPaths", {
+      params: { pk: project.id },
+      body: { items: [trimmed], recursive: serverRecursive },
+    });
+    if (res?.file_upload_ids) {
+      await onFinish(res);
+    } else {
+      onWaiting?.(false);
+    }
+    setServerImportBusy(false);
+  }, [api, onFinish, onWaiting, project.id, serverPath, serverRecursive]);
 
   const onUpload = useCallback(
     (e) => {
@@ -419,6 +549,64 @@ export const ImportPage = ({
         </div>
       </header>
 
+      {dontCommitToProject && (
+        <div className="flex flex-col gap-tight w-full max-w-4xl">
+          <Typography variant="label" size="small" className="text-neutral-content-subtle">
+            若图片已在 Label Studio 所在机器的磁盘上（位于 LOCAL_FILES_DOCUMENT_ROOT 下），可让服务端直接复制到项目上传目录（需设置环境变量 ENABLE_SERVER_SIDE_LOCAL_IMPORT=1）：
+          </Typography>
+          <div className="flex flex-wrap items-end gap-tight">
+            <Input
+              placeholder="相对路径，例如 datasets/my_images"
+              value={serverPath}
+              onChange={(e) => setServerPath(e.target.value)}
+              rawClassName="min-w-[220px] flex-1 h-[40px]"
+            />
+            <label className="inline-flex items-center gap-1 text-body-small text-neutral-content cursor-pointer">
+              <Checkbox
+                checked={serverRecursive}
+                onChange={(e) => setServerRecursive(e.target.checked)}
+                ariaLabel="包含子目录"
+              />
+              包含子目录
+            </label>
+            <Button
+              type="button"
+              variant="primary"
+              look="outlined"
+              waiting={serverImportBusy}
+              onClick={runServerPathImport}
+            >
+              从服务器路径导入
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {bulkImagePrompt && (
+        <SimpleCard title="大量图片导入" className="w-full max-w-4xl">
+          <Typography variant="body" size="small" className="mb-tight">
+            已选择 {bulkImagePrompt.imageCount} 张图片（共 {bulkImagePrompt.total}{" "}
+            个文件）。通过浏览器逐文件上传往往较慢，建议改用 API、命令行批量导入，或在服务器已启用本地导入时从磁盘路径复制。
+          </Typography>
+          <div className="flex flex-wrap gap-tight mb-tight">
+            <Button type="button" variant="primary" look="filled" onClick={continueBrowserBulkUpload}>
+              仍使用浏览器上传
+            </Button>
+            <Button type="button" variant="neutral" look="outlined" onClick={dismissBulkImagePrompt}>
+              取消本次选择
+            </Button>
+          </div>
+          <Typography variant="label" size="small" className="text-neutral-content-subtle mb-1">
+            使用 HTTP API 分批上传（示例）：
+          </Typography>
+          <CodeBlock code={bulkApiExample} className="w-full text-left mb-tight" />
+          <Typography variant="label" size="small" className="text-neutral-content-subtle mb-1">
+            服务端从 LOCAL_FILES_DOCUMENT_ROOT 复制（需 ENABLE_SERVER_SIDE_LOCAL_IMPORT=1）：
+          </Typography>
+          <CodeBlock code={localServerImportExample} className="w-full text-left" />
+        </SimpleCard>
+      )}
+
       <ErrorMessage error={error} />
 
       <main>
@@ -447,16 +635,8 @@ export const ImportPage = ({
                       <dt>
                         <div className="flex items-center gap-1">
                           Video
-                          <Tooltip title="Video format support depends on your browser. Click to learn more.">
-                            <a
-                              href="https://labelstud.io/tags/video#Video-format"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center"
-                              aria-label="Learn more about video format support (opens in a new tab)"
-                            >
-                              <IconInfoOutline className="w-4 h-4 text-primary-content hover:text-primary-content-hover" />
-                            </a>
+                          <Tooltip title="Video format support depends on your browser (mp4 and webm are widely supported).">
+                            <IconInfoOutline className="w-4 h-4 text-primary-content" />
                           </Tooltip>
                         </div>
                       </dt>
@@ -471,47 +651,17 @@ export const ImportPage = ({
                       <dd>{supportedExtensions.pdf.join(", ")}</dd>
                     </dl>
                     <div className="tips">
-                      <b>Important:</b>
-                      <ul className="mt-2 ml-4 list-disc font-normal">
+                        <b>Tips:</b>
+                        <ul className="mt-2 ml-4 list-disc font-normal">
                         <li>
-                          We recommend{" "}
-                          <a
-                            href="https://labelstud.io/guide/storage.html"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            aria-label="Cloud Storage documentation (opens in a new tab)"
-                          >
-                            Cloud Storage
-                          </a>{" "}
-                          over direct uploads due to{" "}
-                          <a
-                            href="https://labelstud.io/guide/tasks.html#Import-data-from-the-Label-Studio-UI"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            aria-label="Upload limitations documentation (opens in a new tab)"
-                          >
-                            upload limitations
-                          </a>
-                          .
+                          Large files (over 50 MB) are automatically uploaded using chunked upload with progress tracking.
                         </li>
                         <li>
-                          For PDFs, use{" "}
-                          <a
-                            href="https://labelstud.io/templates/multi-page-document-annotation"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            aria-label="Multi-image labeling documentation (opens in a new tab)"
-                          >
-                            multi-image labeling
-                          </a>
-                          . JSONL or Parquet (Enterprise only) files require cloud storage.
+                          For very large datasets, consider using local/NAS storage connectors in project settings.
                         </li>
                         <li>
-                          Check the documentation to{" "}
-                          <a target="_blank" href="https://labelstud.io/guide/predictions.html" rel="noreferrer">
-                            import preannotated data
-                          </a>
-                          .
+                          Selecting {BULK_IMAGE_UPLOAD_THRESHOLD}+ images will prompt you with API and server-side import
+                          options before the browser upload starts.
                         </li>
                       </ul>
                     </div>
@@ -586,6 +736,7 @@ export const ImportPage = ({
                           FILENAME_TRUNCATE_END,
                           "...",
                         );
+                        const progress = uploadProgress[file.name];
                         return (
                           <tr key={`${idx}-${file.name}`}>
                             <td className={importClass.elem("file-name").toClassName()}>
@@ -594,13 +745,29 @@ export const ImportPage = ({
                                   {truncatedFilename}
                                 </Typography>
                               </Tooltip>
+                              {progress !== undefined && (
+                                <div className="w-full mt-1">
+                                  <div className="h-1 bg-neutral-border rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full bg-primary-content rounded-full transition-all duration-300"
+                                      style={{ width: `${progress}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              )}
                             </td>
                             <td>
                               <span
                                 className={importClass.elem("file-status").mod({ uploading: true }).toClassName()}
                               />
                             </td>
-                            <td className={importClass.elem("file-size").toClassName()}>&nbsp;</td>
+                            <td className={importClass.elem("file-size").toClassName()}>
+                              {progress !== undefined ? (
+                                <Typography variant="body" size="smaller" className="text-nowrap text-neutral-content-subtle text-right">
+                                  {progress}%
+                                </Typography>
+                              ) : <>&nbsp;</>}
+                            </td>
                           </tr>
                         );
                       })}

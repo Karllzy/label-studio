@@ -127,7 +127,7 @@ describe("Bulk mode", () => {
     cy.get(".lsf-sidepanels__wrapper").should("not.exist");
 
     cy.get(".lsf-current-task").should("not.exist");
-    cy.get(`[aria-label="Compare all annotations"]`).should("not.exist");
+    cy.get(`[aria-label="对比全部标注"]`).should("not.exist");
     cy.get(`[aria-label="Create an annotation"]`).should("not.exist");
     cy.get(".lsf-annotations-carousel").should("not.exist");
     cy.get(".lsf-ground-truth").should("not.exist");

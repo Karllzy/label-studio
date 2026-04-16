@@ -1,7 +1,7 @@
 import { Button, buttonVariant, ToastContext, ToastType } from "@humansignal/ui";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { generatePath, useHistory } from "react-router";
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import { Spinner } from "../../components";
 import { modal } from "../../components/Modal/Modal";
 import { Space } from "../../components/Space/Space";
@@ -13,11 +13,15 @@ import { cn } from "../../utils/bem";
 import { isDefined } from "../../utils/helpers";
 import { ImportModal } from "../CreateProject/Import/ImportModal";
 import { ExportPage } from "../ExportPage/ExportPage";
+import { AssignAnnotatorToolbarButton } from "./AssignAnnotatorToolbarButton";
 import { APIConfig } from "./api-config";
 
 import "./DataManager.prefix.css";
 
 const loadDependencies = () => [import("@humansignal/datamanager"), import("@humansignal/editor")];
+
+const DEFAULT_DM_TOOLBAR =
+  "actions columns filters ordering label-button loading-possum error-box | refresh import-button export-button density-toggle grid-size view-toggle";
 
 const initializeDataManager = async (root, props, params) => {
   if (!window.LabelStudio) throw Error("Label Studio Frontend doesn't exist on the page");
@@ -26,6 +30,11 @@ const initializeDataManager = async (root, props, params) => {
   root.dataset.dmInitialized = true;
 
   const { ...settings } = root.dataset;
+
+  const showAssignTool =
+    params.project?.can_assign_tasks === true &&
+    params.project?.task_assignment_mode === "manual" &&
+    params.project?.my_project_role !== "AN";
 
   const dmConfig = {
     root,
@@ -50,6 +59,26 @@ const initializeDataManager = async (root, props, params) => {
     ...settings,
   };
 
+  if (showAssignTool && params.assignLoadAnnotators && params.assignTasks) {
+    dmConfig.toolbar = `${DEFAULT_DM_TOOLBAR} assign-annotator-button`;
+    dmConfig.settings = {
+      ...(dmConfig.settings ?? {}),
+      assignAnnotator: {
+        enabled: true,
+        loadAnnotators: params.assignLoadAnnotators,
+        assign: params.assignTasks,
+      },
+    };
+    dmConfig.instruments = {
+      ...(dmConfig.instruments ?? {}),
+      "assign-annotator-button": () => {
+        return function AssignAnnotatorInstrument({ size }) {
+          return <AssignAnnotatorToolbarButton size={size} />;
+        };
+      },
+    };
+  }
+
   return new window.DataManager(dmConfig);
 };
 
@@ -63,12 +92,14 @@ export const DataManagerPage = ({ ...props }) => {
   const root = useRef();
   const params = useParams();
   const history = useHistory();
+  const location = useLocation();
   const api = useAPI();
   const { project } = useProject();
   const setContextProps = useContextProps();
-  const [crashed, setCrashed] = useState(false);
+  const [crashed, _setCrashed] = useState(false);
   const [loading, setLoading] = useState(!window.DataManager || !window.LabelStudio);
   const dataManagerRef = useRef();
+  const skipFirstUrlLabelingSync = useRef(false);
   const projectId = project?.id;
 
   const init = useCallback(async () => {
@@ -90,6 +121,18 @@ export const DataManagerPage = ({ ...props }) => {
         ...params,
         project,
         autoAnnotation: isDefined(interactiveBacked),
+        assignLoadAnnotators: async () => {
+          const raw = await api.callApi("projectMembers", { params: { pk: project.id } });
+          if (Array.isArray(raw)) return raw;
+          if (raw?.results && Array.isArray(raw.results)) return raw.results;
+          return [];
+        },
+        assignTasks: async (taskIds, annotatorId) => {
+          await api.callApi("assignTasks", {
+            params: { pk: project.id },
+            body: { task_ids: taskIds, annotator_id: annotatorId },
+          });
+        },
       })));
 
     Object.assign(window, { dataManager });
@@ -155,7 +198,7 @@ export const DataManagerPage = ({ ...props }) => {
     });
 
     if (interactiveBacked) {
-      dataManager.on("lsf:regionFinishedDrawing", (reg, group) => {
+      dataManager.on("lsf:regionFinishedDrawing", (_reg, group) => {
         const { lsf, task, currentAnnotation: annotation } = dataManager.lsf;
         const ids = group.map((r) => r.cleanId);
         const result = annotation.serializeAnnotation().filter((res) => ids.includes(res.id));
@@ -182,9 +225,10 @@ export const DataManagerPage = ({ ...props }) => {
         });
 
         lsf.loadSuggestions(wrappedRequest, (response) => {
-          if (response.data) {
-            return response.data.result;
-          }
+          const payload = response?.data?.data ?? response?.data ?? response;
+
+          if (Array.isArray(payload)) return payload;
+          if (Array.isArray(payload?.result)) return payload.result;
 
           return null;
         });
@@ -207,6 +251,31 @@ export const DataManagerPage = ({ ...props }) => {
       .then(init);
   }, [init]);
 
+  // Opening /data?task=&annotation=&review= from in-app links must start labeling even when the
+  // Data Manager instance was already mounted (fetchData only runs once on createApp).
+  useEffect(() => {
+    const dm = dataManagerRef.current;
+    if (!dm?.store || loading || !project?.id) return;
+
+    if (!skipFirstUrlLabelingSync.current) {
+      skipFirstUrlLabelingSync.current = true;
+      return;
+    }
+
+    const params = new URLSearchParams(location.search || "");
+    const taskParam = params.get("task");
+    if (!taskParam) return;
+
+    const taskNum = Number.parseInt(taskParam, 10);
+    if (!Number.isFinite(taskNum)) return;
+
+    const annRaw = params.get("annotation");
+    const annNum = annRaw !== null && annRaw !== "" ? Number.parseInt(annRaw, 10) : Number.NaN;
+    const item = Number.isFinite(annNum) ? { id: annNum, task_id: taskNum } : { id: taskNum };
+
+    dm.store.startLabeling(item, { pushState: false });
+  }, [location.search, loading, project?.id]);
+
   useEffect(() => {
     // destroy the data manager when the component is unmounted
     return () => destroyDM();
@@ -214,10 +283,10 @@ export const DataManagerPage = ({ ...props }) => {
 
   return crashed ? (
     <div className={cn("crash").toClassName()}>
-      <div className={cn("crash").elem("info").toClassName()}>Project was deleted or not yet created</div>
+      <div className={cn("crash").elem("info").toClassName()}>项目已删除或尚未创建</div>
 
-      <Button to="/projects" aria-label="Back to projects">
-        Back to projects
+      <Button to="/projects" aria-label="返回项目列表">
+        返回项目列表
       </Button>
     </div>
   ) : (
@@ -243,7 +312,7 @@ DataManagerPage.context = ({ dmRef }) => {
   const [mode, setMode] = useState(dmRef?.mode ?? "explorer");
 
   const links = {
-    "/settings": "Settings",
+    "/settings": "设置",
   };
 
   const updateCrumbs = (currentMode) => {
@@ -254,7 +323,7 @@ DataManagerPage.context = ({ dmRef }) => {
     } else {
       addCrumb({
         key: "dm-crumb",
-        title: "Labeling",
+        title: "标注",
       });
     }
   };
@@ -265,7 +334,7 @@ DataManagerPage.context = ({ dmRef }) => {
 
     if (isLabelStream && show_instruction && expert_instruction) {
       modal({
-        title: "Labeling Instructions",
+        title: "标注说明",
         body: <div dangerouslySetInnerHTML={{ __html: expert_instruction }} />,
         style: { width: 680 },
       });
@@ -296,7 +365,7 @@ DataManagerPage.context = ({ dmRef }) => {
           look="outlined"
           onClick={() => {
             modal({
-              title: "Instructions",
+              title: "说明",
               body: () => (
                 <div
                   dangerouslySetInnerHTML={{
@@ -307,7 +376,7 @@ DataManagerPage.context = ({ dmRef }) => {
             });
           }}
         >
-          Instructions
+          说明
         </Button>
       )}
 

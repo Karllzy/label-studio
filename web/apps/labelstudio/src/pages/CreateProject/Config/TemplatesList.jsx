@@ -34,7 +34,7 @@ const TemplatesInGroup = ({ templates, group, onSelectRecipe, isEdition }) => {
             key={recipe.title}
             onClick={() => !isDisabled && onSelectRecipe(recipe)}
             className={listClass.elem("template").mod({ disabled: isDisabled }).toClassName()}
-            title={isDisabled ? "Enterprise feature - Available in Label Studio Enterprise" : ""}
+            title={isDisabled ? "Enterprise 功能，仅 Label Studio Enterprise 可用" : ""}
           >
             <img src={recipe.image} alt={""} />
             <div className="flex flex-col items-center w-full">
@@ -97,9 +97,9 @@ export const TemplatesList = ({ selectedGroup, selectedRecipe, onCustomTemplate,
           size="small"
           onClick={onCustomTemplate}
           className="w-full"
-          aria-label="Create custom template"
+          aria-label="创建自定义模板"
         >
-          Custom template
+          自定义模板
         </Button>
       </aside>
       <main>
@@ -114,11 +114,11 @@ export const TemplatesList = ({ selectedGroup, selectedRecipe, onCustomTemplate,
       <footer className="flex items-center justify-center gap-1">
         <IconInfo className={listClass.elem("info-icon").toClassName()} width="20" height="20" />
         <span>
-          See the documentation to{" "}
+          如需{" "}
           <a href="https://labelstud.io/guide" target="_blank" rel="noreferrer">
-            contribute a template
+            提交模板
           </a>
-          .
+          ，可查看文档。
         </span>
       </footer>
     </div>

@@ -17,4 +17,5 @@ class TasksConfig(AppConfig):
         Note: FSM transitions are now registered centrally in fsm/apps.py.
         Do NOT import transitions here to avoid duplicate registration.
         """
-        pass
+        import tasks.signals  # noqa: F401  # register Annotation → Task.pending_review sync
+

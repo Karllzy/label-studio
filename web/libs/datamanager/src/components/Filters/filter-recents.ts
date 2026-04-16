@@ -5,12 +5,16 @@
  * An entry captures the full filter state { id, operator, value } so it can be
  * fully restored when the user picks a field from the "Recent" section.
  *
+ * Keys are scoped per user (`:u{id}`) so multiple accounts on the same browser do not share recents.
+ *
  * Two mutation helpers exist:
  *  - addRecentFilterField  – adds/moves entry to the front (used when switching to a new column)
  *  - updateRecentFilterField – updates state in-place without reordering; also appends
  *    new entries at the end so columns that are used but never "switched away from"
  *    (e.g. the user deletes the filter) still get tracked
  */
+
+import { dmUserStorageKey } from "../../utils/dm-user-storage";
 
 export interface RecentFilterEntry {
   id: string;
@@ -20,8 +24,31 @@ export interface RecentFilterEntry {
 
 const MAX_RECENT_FIELDS = 3;
 
-function getStorageKey(projectId: string | number): string {
+function getLegacyStorageKey(projectId: string | number): string {
   return `dm:recentFilterFields:${projectId}`;
+}
+
+function getStorageKey(projectId: string | number): string {
+  return dmUserStorageKey(getLegacyStorageKey(projectId));
+}
+
+/** Read raw JSON for recents; one-time copy from legacy per-project key into user-scoped key. */
+function readRawFromStorage(projectId: string | number): string | null {
+  const userKey = getStorageKey(projectId);
+  let raw = localStorage.getItem(userKey);
+  if (raw) return raw;
+  const legacyKey = getLegacyStorageKey(projectId);
+  if (userKey === legacyKey) return null;
+  const legacy = localStorage.getItem(legacyKey);
+  if (legacy) {
+    try {
+      localStorage.setItem(userKey, legacy);
+    } catch {
+      /* ignore quota / private mode */
+    }
+    return legacy;
+  }
+  return null;
 }
 
 /** Backward-compat: old format stored bare strings; convert to { id, operator, value }. */
@@ -39,7 +66,7 @@ function normalizeEntry(entry: unknown): RecentFilterEntry | null {
 export function getRecentFilterFields(projectId: string | number | null | undefined): RecentFilterEntry[] {
   if (!projectId) return [];
   try {
-    const raw = localStorage.getItem(getStorageKey(projectId));
+    const raw = readRawFromStorage(projectId);
     const parsed: unknown = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(parsed)) return [];
     return (parsed as unknown[])

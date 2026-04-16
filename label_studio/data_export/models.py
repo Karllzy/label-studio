@@ -251,3 +251,59 @@ class ConvertedFormat(models.Model):
             if self.file:
                 self.file.delete()
         super().delete(*args, **kwargs)
+
+
+class PackagedExport(models.Model):
+    """Export project data to a server folder and optionally zip for download."""
+
+    class Status(models.TextChoices):
+        CREATED = 'created', _('Created')
+        IN_PROGRESS = 'in_progress', _('In progress')
+        FAILED = 'failed', _('Failed')
+        COMPLETED = 'completed', _('Completed')
+
+    project = models.ForeignKey(
+        'projects.Project',
+        related_name='packaged_exports',
+        on_delete=models.CASCADE,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name='+',
+        on_delete=models.SET_NULL,
+        null=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, default=None)
+    status = models.CharField(max_length=64, choices=Status.choices, default=Status.CREATED)
+    export_format = models.CharField(max_length=64, default='JSON')
+    target_path = models.TextField(help_text='Server directory where exported files are stored')
+    include_resources = models.BooleanField(default=False, help_text='Include original data files')
+    zip_file = models.FileField(
+        upload_to=getattr(settings, 'EXPORT_PACKAGES_DIR', 'export_packages'),
+        null=True,
+        blank=True,
+    )
+    counters = models.JSONField(default=dict, blank=True)
+    traceback = models.TextField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'PackagedExport #{self.id} for project {self.project_id}'
+
+    @property
+    def zip_filename(self):
+        if self.zip_file:
+            return os.path.basename(self.zip_file.name)
+        return None
+
+    @property
+    def zip_size(self):
+        if self.zip_file:
+            try:
+                return self.zip_file.size
+            except Exception:
+                return None
+        return None

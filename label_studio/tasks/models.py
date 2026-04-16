@@ -174,6 +174,11 @@ class Task(TaskMixin, FsmHistoryStateModel):
         db_index=True,
         help_text='When the last comment was updated',
     )
+    pending_review = models.BooleanField(
+        _('pending review'),
+        default=False,
+        help_text='True if the task has at least one non-cancelled annotation awaiting review',
+    )
 
     objects = TaskManager()  # task manager by default
     prepared = PreparedTaskManager()  # task manager with filters, ordering, etc for data_manager app
@@ -187,6 +192,7 @@ class Task(TaskMixin, FsmHistoryStateModel):
             models.Index(fields=['id', 'overlap']),
             models.Index(fields=['overlap']),
             models.Index(fields=['project', 'id']),
+            models.Index(fields=['project', 'pending_review']),
         ]
 
     @property
@@ -566,9 +572,12 @@ class Task(TaskMixin, FsmHistoryStateModel):
     def completed_annotations(self):
         """Annotations that we take into account when set completed status to the task"""
         if self.project.skip_queue == self.project.SkipQueue.IGNORE_SKIPPED:
-            return self.annotations
+            qs = self.annotations
         else:
-            return self.annotations.filter(Q_finished_annotations)
+            qs = self.annotations.filter(Q_finished_annotations)
+        if self.project.require_review:
+            qs = qs.exclude(review_status=Annotation.ReviewStatus.PENDING)
+        return qs
 
     def increase_project_summary_counters(self):
         if hasattr(self.project, 'summary'):
@@ -780,6 +789,31 @@ class Annotation(AnnotationMixin, FsmHistoryStateModel):
         help_text='Annotation was created in bulk mode',
     )
 
+    class ReviewStatus(models.TextChoices):
+        PENDING = 'pending', 'Pending Review'
+        APPROVED = 'approved', 'Approved'
+        REJECTED = 'rejected', 'Rejected'
+
+    review_status = models.CharField(
+        _('review status'), max_length=10, choices=ReviewStatus.choices,
+        null=True, blank=True, db_index=True,
+        help_text='Review status of this annotation',
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='reviewed_annotations',
+        verbose_name=_('reviewed by'),
+        help_text='User who reviewed this annotation',
+    )
+    reviewed_at = models.DateTimeField(
+        _('reviewed at'), null=True, blank=True,
+        help_text='When this annotation was reviewed',
+    )
+    review_comment = models.TextField(
+        _('review comment'), blank=True, default='',
+        help_text='Comment from reviewer',
+    )
+
     class Meta:
         db_table = 'task_completion'
         indexes = [
@@ -938,6 +972,44 @@ class TaskLock(FsmHistoryStateModel):
 
     def has_permission(self, user):
         return self.task.has_permission(user)
+
+
+class TaskAssignment(models.Model):
+    """Tracks which annotator is assigned to which task."""
+
+    class Status(models.TextChoices):
+        ASSIGNED = 'assigned', 'Assigned'
+        IN_PROGRESS = 'in_progress', 'In Progress'
+        SUBMITTED = 'submitted', 'Submitted'
+        REASSIGNED = 'reassigned', 'Reassigned'
+
+    task = models.ForeignKey(
+        'tasks.Task', on_delete=models.CASCADE, related_name='assignments',
+        help_text='Task assigned to annotator',
+    )
+    annotator = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='task_assignments',
+        help_text='Annotator assigned to this task',
+    )
+    assigned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='+', help_text='User who created this assignment',
+    )
+    status = models.CharField(
+        _('status'), max_length=20, choices=Status.choices, default=Status.ASSIGNED,
+    )
+    assigned_at = models.DateTimeField(_('assigned at'), auto_now_add=True)
+    updated_at = models.DateTimeField(_('updated at'), auto_now=True)
+
+    class Meta:
+        db_table = 'task_assignment'
+        indexes = [
+            models.Index(fields=['task', 'annotator']),
+            models.Index(fields=['annotator', 'status']),
+        ]
+
+    def __str__(self):
+        return f'TaskAssignment(task={self.task_id}, annotator={self.annotator_id}, status={self.status})'
 
 
 class AnnotationDraftQuerySet(models.QuerySet):

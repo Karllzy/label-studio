@@ -10,7 +10,7 @@
     width: 100%;
     display: block;
     position: absolute;
-    background-color: var(--color-neutral-content);
+    background-color: #ffffff;
 
     &:nth-child(1) {
       top: 0;
@@ -32,7 +32,7 @@
 
   &:hover span,
   &_opened span {
-    background-color: var(--color-neutral-content);
+    background-color: #ffffff;
   }
 
   &_opened span {

@@ -14,7 +14,16 @@ _api_projects_urlpatterns = [
     path('<int:pk>/import', api.ImportAPI.as_view(), name='project-import'),
     path('<int:pk>/import/predictions', api.ImportPredictionsAPI.as_view(), name='project-import-predictions'),
     path('<int:pk>/reimport', api.ReImportAPI.as_view(), name='project-reimport'),
+    path(
+        '<int:pk>/import/local-files',
+        api.ImportFromLocalDocumentAPI.as_view(),
+        name='project-import-local-files',
+    ),
     path('<int:pk>/file-uploads', api.FileUploadListAPI.as_view(), name='project-file-upload-list'),
+    # Chunked upload
+    path('<int:pk>/import/chunked/init', api.ChunkedUploadInitAPI.as_view(), name='project-chunked-upload-init'),
+    path('<int:pk>/import/chunked/upload', api.ChunkedUploadPartAPI.as_view(), name='project-chunked-upload-part'),
+    path('<int:pk>/import/chunked/complete', api.ChunkedUploadCompleteAPI.as_view(), name='project-chunked-upload-complete'),
 ]
 
 urlpatterns = [

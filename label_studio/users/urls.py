@@ -28,6 +28,9 @@ urlpatterns = [
     # Product tours
     path('api/current-user/product-tour', product_tours_api.ProductTourAPI.as_view(), name='product-tour'),
     path('api/current-user/hotkeys/', api.UserHotkeysAPI.as_view(), name='current-user-hotkeys'),
+    # System admin user management
+    path('api/admin/users/', api.AdminUserListCreateAPI.as_view(), name='admin-user-list'),
+    path('api/admin/users/<int:pk>/', api.AdminUserDetailAPI.as_view(), name='admin-user-detail'),
 ]
 
 # When CLOUD_FILE_STORAGE_ENABLED is set, avatars are uploaded to cloud storage with a different URL pattern.

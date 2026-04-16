@@ -21,7 +21,7 @@ export const PeoplePage = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [invitationOpen, setInvitationOpen] = useState(false);
 
-  useUpdatePageTitle("People");
+  useUpdatePageTitle("成员管理");
 
   const selectUser = useCallback(
     (user) => {
@@ -66,7 +66,7 @@ export const PeoplePage = () => {
           <Space>
             {isFF(FF_AUTH_TOKENS) && (
               <Button look="outlined" onClick={showApiTokenSettingsModal} aria-label="Show API token settings">
-                API Tokens Settings
+                API Token 设置
               </Button>
             )}
             <Button
@@ -74,7 +74,7 @@ export const PeoplePage = () => {
               onClick={() => setInvitationOpen(true)}
               aria-label="Invite new member"
             >
-              Add Members
+              添加成员
             </Button>
           </Space>
         </Space>
@@ -103,5 +103,5 @@ export const PeoplePage = () => {
   );
 };
 
-PeoplePage.title = "People";
+PeoplePage.title = "成员管理";
 PeoplePage.path = "/";

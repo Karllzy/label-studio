@@ -5,13 +5,8 @@ import {
   IconCheck,
   IconSearch,
   IconInbox,
-  IconCloudProviderS3,
-  IconCloudProviderGCS,
-  IconCloudProviderAzure,
-  IconCloudProviderRedis,
 } from "@humansignal/icons";
-import { Button, IconExternal, Typography, Tooltip } from "@humansignal/ui";
-import { getDocsUrl } from "../../../../../../editor/src/utils/docs";
+import { Button, Typography } from "@humansignal/ui";
 import { ABILITY, useAuth } from "@humansignal/core/providers/AuthProvider";
 
 declare global {
@@ -134,55 +129,6 @@ const renderEmptyStateLayout = ({
   return content;
 };
 
-// Storage provider icons component
-const StorageProviderIcons = () => (
-  <div className="flex items-center justify-center gap-base mb-wide" data-testid="dm-storage-provider-icons">
-    <Tooltip title="Amazon S3">
-      <div className="flex items-center justify-center p-2" aria-label="Amazon S3">
-        <IconCloudProviderS3 width={32} height={32} className="text-neutral-content-subtler" />
-      </div>
-    </Tooltip>
-    <Tooltip title="Google Cloud Storage">
-      <div className="flex items-center justify-center p-2" aria-label="Google Cloud Storage">
-        <IconCloudProviderGCS width={32} height={32} className="text-neutral-content-subtler" />
-      </div>
-    </Tooltip>
-    <Tooltip title="Azure Blob Storage">
-      <div className="flex items-center justify-center p-2" aria-label="Azure Blob Storage">
-        <IconCloudProviderAzure width={32} height={32} className="text-neutral-content-subtler" />
-      </div>
-    </Tooltip>
-    <Tooltip title="Redis Storage">
-      <div className="flex items-center justify-center p-2" aria-label="Redis Storage">
-        <IconCloudProviderRedis width={32} height={32} className="text-neutral-content-subtler" />
-      </div>
-    </Tooltip>
-  </div>
-);
-
-// Documentation link component
-const DocumentationLink = () => {
-  if (window.APP_SETTINGS?.whitelabel_is_active) {
-    return null;
-  }
-
-  return (
-    <Typography variant="label" size="small" className="text-primary-link hover:underline">
-      <a
-        href={getDocsUrl("guide/tasks")}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-1"
-        data-testid="dm-docs-data-import-link"
-      >
-        See docs on importing data
-        <span className="sr-only"> (opens in a new tab)</span>
-        <IconExternal width={20} height={20} />
-      </a>
-    </Typography>
-  );
-};
-
 /**
  * Unified empty state for Data Manager
  * Handles different empty states based on user role and context
@@ -222,11 +168,11 @@ export const EmptyState: FC<EmptyStateProps> = ({
       icon: <IconSearch />,
       iconBackground: "bg-warning-background",
       iconColor: "text-warning-icon",
-      title: "No tasks found",
-      description: "Try adjusting or clearing the filters to see more results",
+      title: "未找到任务",
+      description: "尝试调整或清除筛选条件以查看更多结果",
       actions: (
         <Button variant="primary" look="outlined" onClick={onClearFilters} data-testid="dm-clear-filters-button">
-          Clear Filters
+          清除筛选
         </Button>
       ),
     });
@@ -240,8 +186,8 @@ export const EmptyState: FC<EmptyStateProps> = ({
     if (userRole === "REVIEWER") {
       return renderEmptyStateLayout({
         icon: <IconCheck />,
-        title: "No tasks available for review or labeling",
-        description: "Tasks imported to this project will appear here",
+        title: "暂无可审核或标注的任务",
+        description: "导入到此项目的任务将显示在这里",
       });
     }
 
@@ -253,8 +199,8 @@ export const EmptyState: FC<EmptyStateProps> = ({
       if (isAutoDistribution) {
         return renderEmptyStateLayout({
           icon: <IconLsLabeling />,
-          title: "Start labeling tasks",
-          description: "Tasks you've labeled will appear here",
+          title: "开始标注任务",
+          description: "您标注过的任务将显示在这里",
           actions: (
             <Button
               variant="primary"
@@ -263,7 +209,7 @@ export const EmptyState: FC<EmptyStateProps> = ({
               onClick={onLabelAllTasks}
               data-testid="dm-label-all-tasks-button"
             >
-              Label All Tasks
+              标注所有任务
             </Button>
           ),
         });
@@ -272,16 +218,16 @@ export const EmptyState: FC<EmptyStateProps> = ({
       if (isManualDistribution) {
         return renderEmptyStateLayout({
           icon: <IconInbox />,
-          title: "No tasks available",
-          description: "Tasks assigned to you will appear here",
+          title: "暂无可用任务",
+          description: "分配给您的任务将显示在这里",
         });
       }
 
       // Fallback for annotators with unknown distribution setting
       return renderEmptyStateLayout({
         icon: <IconInbox width={40} height={40} />,
-        title: "No tasks available",
-        description: "Tasks will appear here when they become available",
+        title: "暂无可用任务",
+        description: "任务可用时将显示在这里",
       });
     }
   }
@@ -289,39 +235,37 @@ export const EmptyState: FC<EmptyStateProps> = ({
   // Default case: show import functionality (existing behavior for Owners/Admins/Managers)
   return renderEmptyStateLayout({
     icon: <IconUpload />,
-    title: "Import data to get your project started",
-    description: "Connect your cloud storage or upload files from your computer",
+    title: "导入数据以开始项目",
+    description: "从电脑上传文件或连接本地存储",
     testId: "empty-state-label",
     ariaLabelledBy: "dm-empty-title",
     ariaDescribedBy: "dm-empty-desc",
-    additionalContent: <StorageProviderIcons />,
     actions: (
       <>
-        {permissions.can(ABILITY.can_manage_storage) && (
+        {isImportEnabled && (
           <Button
             variant="primary"
             look="filled"
             className="flex-1"
-            onClick={onOpenSourceStorageModal}
-            data-testid="dm-connect-source-storage-button"
+            onClick={onOpenImportModal}
+            data-testid="dm-import-button"
           >
-            Connect Cloud Storage
+            导入
           </Button>
         )}
 
-        {isImportEnabled && (
+        {permissions.can(ABILITY.can_manage_storage) && (
           <Button
             variant="primary"
             look="outlined"
             className="flex-1"
-            onClick={onOpenImportModal}
-            data-testid="dm-import-button"
+            onClick={onOpenSourceStorageModal}
+            data-testid="dm-connect-source-storage-button"
           >
-            Import
+            连接存储
           </Button>
         )}
       </>
     ),
-    footer: <DocumentationLink />,
   });
 };

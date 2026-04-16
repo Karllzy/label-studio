@@ -1450,6 +1450,7 @@ const _Annotation = types
         ...item.toJSON(),
         id: itemId,
         fromSuggestion: true,
+        dynamic: false,
       });
       const area = self.areas.get(itemId);
       const activeStates = area.object.activeStates();

@@ -99,12 +99,12 @@ describe("Controls", () => {
       </Provider>,
     );
 
-    const skipTask = getByLabelText("skip-task");
+    const skipTask = getByLabelText("跳过当前任务");
     fireEvent.click(skipTask);
 
     expect(mockStore.skipTask).not.toHaveBeenCalled();
     expect(mockStore.commentStore.commentFormSubmit).not.toHaveBeenCalled();
-    expect(mockStore.commentStore.setTooltipMessage).toHaveBeenCalledWith("Please enter a comment before skipping");
+    expect(mockStore.commentStore.setTooltipMessage).toHaveBeenCalledWith("跳过前请先填写评论");
   });
 
   test("When skip button is clicked, but there is an empty message on currentComment and annotators must leave a comment on skip, it must not submit and setToolTipMessage", () => {
@@ -117,12 +117,12 @@ describe("Controls", () => {
       </Provider>,
     );
 
-    const skipTask = getByLabelText("skip-task");
+    const skipTask = getByLabelText("跳过当前任务");
     fireEvent.click(skipTask);
 
     expect(mockStore.skipTask).not.toHaveBeenCalled();
     expect(mockStore.commentStore.commentFormSubmit).not.toHaveBeenCalled();
-    expect(mockStore.commentStore.setTooltipMessage).toHaveBeenCalledWith("Please enter a comment before skipping");
+    expect(mockStore.commentStore.setTooltipMessage).toHaveBeenCalledWith("跳过前请先填写评论");
   });
 
   test("When skip button is clicked, if there is no currentComment and annotators doesn't need to leave a comment on skip, it must submit", async () => {
@@ -134,7 +134,7 @@ describe("Controls", () => {
       </Provider>,
     );
 
-    const skipTask = getByLabelText("skip-task");
+    const skipTask = getByLabelText("跳过当前任务");
     fireEvent.click(skipTask);
 
     await expect(mockStore.commentStore.commentFormSubmit).toHaveBeenCalled();
@@ -153,7 +153,7 @@ describe("Controls", () => {
       </Provider>,
     );
 
-    const skipTask = getByLabelText("skip-task");
+    const skipTask = getByLabelText("跳过当前任务");
     // In LSO, skip button should NOT be disabled even when allow_skip=false
     expect(skipTask).not.toBeDisabled();
   });
@@ -169,7 +169,7 @@ describe("Controls", () => {
       </Provider>,
     );
 
-    const skipTask = getByLabelText("skip-task");
+    const skipTask = getByLabelText("跳过当前任务");
     expect(skipTask).toBeDisabled();
   });
 
@@ -184,7 +184,7 @@ describe("Controls", () => {
       </Provider>,
     );
 
-    const skipTask = getByLabelText("skip-task");
+    const skipTask = getByLabelText("跳过当前任务");
     expect(skipTask).not.toBeDisabled();
   });
 
@@ -200,7 +200,7 @@ describe("Controls", () => {
       </Provider>,
     );
 
-    const skipTask = getByLabelText("skip-task");
+    const skipTask = getByLabelText("跳过当前任务");
     fireEvent.click(skipTask);
 
     expect(mockStore.skipTask).not.toHaveBeenCalled();

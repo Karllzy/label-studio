@@ -1,18 +1,12 @@
-import { FF_NEW_STORAGES, FF_THEME_TOGGLE } from "./flags";
+import { FF_LSDV_E_297, FF_NEW_STORAGES, FF_SELF_SERVE, FF_THEME_TOGGLE } from "./flags";
 
 const FEATURE_FLAGS = window.APP_SETTINGS?.feature_flags || {};
 
-// TODO: remove the override + if statement once LSE and LSO start building
-// react the same way and `fflag_fix_front_lsdv_4620_memory_leaks_100723_short` is removed
 const FLAGS_OVERRIDE: Record<string, boolean> = {
-  // While it's safe to have overrides living here forever,
-  // they could disrupt others' work if left. Keep it clean
-  // and remove overrides before merging.
-  //
-  // Add your flags overrides as following:
-  // [FF_FLAG_NAME]: boolean
   [FF_NEW_STORAGES]: true,
   [FF_THEME_TOGGLE]: true,
+  [FF_LSDV_E_297]: false,
+  [FF_SELF_SERVE]: false,
 };
 
 /**

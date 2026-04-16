@@ -100,6 +100,18 @@ export const RoutesProvider = ({ children }) => {
     }
   }, [location, routesMap, currentContextProps, routesChain, lastRoute]);
 
+  useEffect(() => {
+    const base =
+      (typeof window !== "undefined" && window.APP_SETTINGS && window.APP_SETTINGS.page_title) || "数据平台";
+    const lr = lastRoute;
+    if (!lr?.title) {
+      document.title = base;
+      return;
+    }
+    const pageTitle = lr.title instanceof Function ? lr.title() : lr.title;
+    document.title = pageTitle ? `${pageTitle} · ${base}` : base;
+  }, [lastRoute]);
+
   return <RoutesContext.Provider value={contextValue}>{children}</RoutesContext.Provider>;
 };
 

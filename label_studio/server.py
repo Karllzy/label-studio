@@ -106,11 +106,12 @@ def _create_project(title, user, label_config=None, sampling=None, description=N
 def _get_user_info(username):
     from users.models import User
     from users.serializers import UserSerializer
+    from django.db.models import Q
 
     if not username:
         username = DEFAULT_USERNAME
 
-    user = User.objects.filter(email=username)
+    user = User.objects.filter(Q(email__iexact=username) | Q(username__iexact=username))
     if not user.exists():
         print({'status': 'error', 'message': f"user {username} doesn't exist"})
         return
@@ -153,7 +154,8 @@ def _create_user(input_args, config):
         password = getpass.getpass(f'User password for {username}: ')
 
     try:
-        user = User.objects.create_user(email=username, password=password)
+        email = username if '@' in username else f'{username}@local'
+        user = User.objects.create_user(email=email, username=username, password=password)
         user.is_staff = True
         user.is_superuser = True
         user.save()
@@ -168,7 +170,9 @@ def _create_user(input_args, config):
     except IntegrityError:
         print('User {} already exists'.format(username))
 
-    user = User.objects.get(email=username)
+    from django.db.models import Q
+
+    user = User.objects.get(Q(email__iexact=username) | Q(username__iexact=username))
     org = Organization.objects.first()
     if not org:
         org = Organization.create_organization(
@@ -207,12 +211,13 @@ def _init(input_args, config):
 
 def _reset_password(input_args):
     from users.models import User
+    from django.db.models import Q
 
     username = input_args.username
     if not username:
         username = input('Username: ')
 
-    user = User.objects.filter(email=username).first()
+    user = User.objects.filter(Q(email__iexact=username) | Q(username__iexact=username)).first()
     if user is None:
         print('User with username {} not found'.format(username))
         return

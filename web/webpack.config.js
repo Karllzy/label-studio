@@ -147,7 +147,13 @@ module.exports = composePlugins(
     };
 
     config.module.rules.forEach((rule) => {
-      if (!rule.oneOf || !rule.test?.toString().includes("css")) return;
+      if (!rule.oneOf) return;
+
+      const hasCssChildren = rule.oneOf.some((r) => {
+        const t = r.test?.toString() ?? "";
+        return t.includes("css");
+      });
+      if (!rule.test?.toString().includes("css") && !hasCssChildren) return;
 
       rule.oneOf.forEach((oneOfRule) => {
         if (!oneOfRule.use) return;
@@ -157,7 +163,7 @@ module.exports = composePlugins(
         );
 
         const innerTest = oneOfRule.test?.toString() ?? "";
-        const cssLoader = oneOfRule.use.find((use) => use.loader?.includes("/css-loader/"));
+        const cssLoader = oneOfRule.use.find((use) => use.loader?.includes("/css-loader/") || use.loader?.includes("\\css-loader\\"));
 
         if (innerTest.includes("module") && cssLoader?.options) {
           cssLoader.options.modules = {
@@ -173,7 +179,11 @@ module.exports = composePlugins(
       rule.oneOf.forEach((oneOfRule, idx) => {
         if (!oneOfRule.test || !oneOfRule.use) return;
         const t = oneOfRule.test.toString();
-        if (/^\/\\\.css\$\/$/.test(t) && oneOfRule.use.some((u) => u.loader?.includes("/css-loader/"))) {
+        const isCssRule = /\.css/.test(t) && !/\.module/.test(t) && !/prefix/.test(t);
+        const hasCssLoader = oneOfRule.use.some((u) =>
+          u.loader?.includes("/css-loader/") || u.loader?.includes("\\css-loader\\")
+        );
+        if (isCssRule && hasCssLoader) {
           insertions.push(idx);
         }
       });
@@ -183,7 +193,7 @@ module.exports = composePlugins(
         const template = rule.oneOf[idx];
         const prefixUse = template.use.map((u) => {
           if (typeof u === "string") return u;
-          if (u.loader?.includes("/css-loader/")) {
+          if (u.loader?.includes("/css-loader/") || u.loader?.includes("\\css-loader\\")) {
             return {
               ...u,
               options: {

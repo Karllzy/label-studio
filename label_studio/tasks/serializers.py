@@ -149,6 +149,8 @@ class AnnotationSerializer(FlexFieldsModelSerializer):
     created_ago = serializers.CharField(default='', read_only=True, help_text='Time delta from creation time')
     completed_by = serializers.PrimaryKeyRelatedField(required=False, queryset=User.objects.all())
     unique_id = serializers.CharField(required=False, write_only=True)
+    # Set only by server (perform_create / review API); never trust client body.
+    review_status = serializers.CharField(read_only=True, allow_null=True)
 
     def create(self, *args, **kwargs):
         try:
@@ -222,6 +224,7 @@ class AnnotationStubSerializer(FlexFieldsModelSerializer):
     - completed_by: user id for avatar lookup
     - ground_truth: for showing star indicator
     - was_cancelled: for skip queue / cancel-skip button display
+    - review_status: for pending-review toolbar without loading full annotation (FIT-720)
     - is_stub: signals frontend to fetch full data on selection
     """
 
@@ -258,6 +261,7 @@ class AnnotationStubSerializer(FlexFieldsModelSerializer):
             'completed_by',
             'ground_truth',
             'was_cancelled',
+            'review_status',
             'is_stub',
         ]
 

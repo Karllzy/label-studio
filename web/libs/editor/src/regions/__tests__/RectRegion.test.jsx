@@ -64,13 +64,19 @@ jest.mock("../../tags/object/Image", () => {
         zoomedPixelSize: { x: 1, y: 1 },
         stageRef: { container: () => ({ style: {} }) },
         getSkipInteractions: () => false,
+        _selectedTool: null,
       }))
-      .views(() => ({
+      .views((self) => ({
         get naturalWidth() {
           return 100;
         },
         get naturalHeight() {
           return 100;
+        },
+        getToolsManager() {
+          return {
+            findSelectedTool: () => self._selectedTool,
+          };
         },
       }))
       .actions((self) => ({
@@ -93,6 +99,9 @@ jest.mock("../../tags/object/Image", () => {
         },
         canvasToInternalY(v) {
           return v;
+        },
+        setSelectedTool(tool) {
+          self._selectedTool = tool;
         },
       })),
   };
@@ -524,6 +533,24 @@ describe("RectRegion", () => {
         </ImageViewContext.Provider>,
       );
       expect(getByTestId("konva-rect")).toBeInTheDocument();
+    });
+
+    it("disables region listening when a drawing tool is active", () => {
+      root.image.setSelectedTool({ isDrawingTool: true });
+      root.setAnnotation({
+        regionStore: { isSelected: () => false },
+        history: { freeze: jest.fn(), unfreeze: jest.fn() },
+        isReadOnly: () => false,
+        isDrawing: false,
+      });
+
+      render(
+        <ImageViewContext.Provider value={{ suggestion: null }}>
+          <HtxRectangle item={region} />
+        </ImageViewContext.Provider>,
+      );
+
+      expect(rectPropsRef.current.listening).toBe(false);
     });
 
     it("returns null when inViewPort is false (FF_ZOOM_OPTIM on, object has no viewPortBBoxCoords)", () => {

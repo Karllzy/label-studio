@@ -92,19 +92,6 @@
       }
     },
     {
-      "title": "Share knowledge with the community",
-      "content": "Have questions or a tip to share with other Label Studio users? Join the community slack channel for the latest updates. ",
-      "closable": true,
-      "link": {
-        "label": "Join the community",
-        "url": "https://label-studio.slack.com",
-        "params": {
-          "experiment": "organization_page_tip",
-          "treatment": "share_knowledge_live"
-        }
-      }
-    },
-    {
       "title": "Did you know?",
       "content": "Label Studio supports multiple points of integration with cloud storage, machine learning models, and popular tools to automate your machine learning pipeline.",
       "closable": true,

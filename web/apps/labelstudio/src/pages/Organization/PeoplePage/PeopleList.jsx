@@ -9,6 +9,9 @@ import { isDefined } from "../../../utils/helpers";
 import "./PeopleList.prefix.css";
 import { CopyableTooltip } from "../../../components/CopyableTooltip/CopyableTooltip";
 
+const ROLE_LABELS = { OW: "所有者", AD: "管理员", ME: "成员" };
+const isSuperuser = window.APP_SETTINGS?.user?.is_superuser === true;
+
 export const PeopleList = ({ onSelect, selectedUser, defaultSelected }) => {
   const api = useAPI();
   const [usersList, setUsersList] = useState();
@@ -43,6 +46,14 @@ export const PeopleList = ({ onSelect, selectedUser, defaultSelected }) => {
     [selectedUser],
   );
 
+  const handleRoleChange = useCallback(async (member, newRole) => {
+    await api.callApi("updateMemberRole", {
+      params: { pk: 1, userPk: member.user.id },
+      body: { role: newRole },
+    });
+    fetchUsers(currentPage, currentPageSize);
+  }, [api, currentPage, currentPageSize, fetchUsers]);
+
   useEffect(() => {
     fetchUsers(currentPage, currentPageSize);
   }, []);
@@ -63,12 +74,14 @@ export const PeopleList = ({ onSelect, selectedUser, defaultSelected }) => {
             <div className={cn("people-list").elem("users").toClassName()}>
               <div className={cn("people-list").elem("header").toClassName()}>
                 <div className={cn("people-list").elem("column").mix("avatar").toClassName()} />
-                <div className={cn("people-list").elem("column").mix("email").toClassName()}>Email</div>
-                <div className={cn("people-list").elem("column").mix("name").toClassName()}>Name</div>
-                <div className={cn("people-list").elem("column").mix("last-activity").toClassName()}>Last Activity</div>
+                <div className={cn("people-list").elem("column").mix("email").toClassName()}>邮箱</div>
+                <div className={cn("people-list").elem("column").mix("name").toClassName()}>姓名</div>
+                <div className={cn("people-list").elem("column").mix("role").toClassName()}>角色</div>
+                <div className={cn("people-list").elem("column").mix("last-activity").toClassName()}>最近活动</div>
               </div>
               <div className={cn("people-list").elem("body").toClassName()}>
-                {usersList.map(({ user }) => {
+                {usersList.map((member) => {
+                  const { user } = member;
                   const active = user.id === selectedUser?.id;
 
                   return (
@@ -85,6 +98,22 @@ export const PeopleList = ({ onSelect, selectedUser, defaultSelected }) => {
                       <div className={cn("people-list").elem("field").mix("email").toClassName()}>{user.email}</div>
                       <div className={cn("people-list").elem("field").mix("name").toClassName()}>
                         {user.first_name} {user.last_name}
+                      </div>
+                      <div className={cn("people-list").elem("field").mix("role").toClassName()}>
+                        {isSuperuser ? (
+                          <select
+                            value={member.role || "ME"}
+                            onChange={(e) => { e.stopPropagation(); handleRoleChange(member, e.target.value); }}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ padding: "2px 6px", borderRadius: 4, border: "1px solid #ddd", fontSize: 13 }}
+                          >
+                            <option value="OW">所有者</option>
+                            <option value="AD">管理员</option>
+                            <option value="ME">成员</option>
+                          </select>
+                        ) : (
+                          <span>{ROLE_LABELS[member.role] || "成员"}</span>
+                        )}
                       </div>
                       <div className={cn("people-list").elem("field").mix("last-activity").toClassName()}>
                         {formatDistance(new Date(user.last_activity), new Date(), { addSuffix: true })}

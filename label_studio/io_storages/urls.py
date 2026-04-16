@@ -10,33 +10,8 @@ from io_storages.all_api import (
     AllImportStorageTypesAPI,
 )
 from io_storages.api import ImportStorageListFilesAPI
-from io_storages.azure_blob.api import (
-    AzureBlobExportStorageDetailAPI,
-    AzureBlobExportStorageFormLayoutAPI,
-    AzureBlobExportStorageListAPI,
-    AzureBlobExportStorageSyncAPI,
-    AzureBlobExportStorageValidateAPI,
-    AzureBlobImportStorageDetailAPI,
-    AzureBlobImportStorageFormLayoutAPI,
-    AzureBlobImportStorageListAPI,
-    AzureBlobImportStorageSerializer,
-    AzureBlobImportStorageSyncAPI,
-    AzureBlobImportStorageValidateAPI,
-)
-from io_storages.gcs.api import (
-    GCSExportStorageDetailAPI,
-    GCSExportStorageFormLayoutAPI,
-    GCSExportStorageListAPI,
-    GCSExportStorageSyncAPI,
-    GCSExportStorageValidateAPI,
-    GCSImportStorageDetailAPI,
-    GCSImportStorageFormLayoutAPI,
-    GCSImportStorageListAPI,
-    GCSImportStorageSerializer,
-    GCSImportStorageSyncAPI,
-    GCSImportStorageValidateAPI,
-)
 from io_storages.localfiles.api import (
+    LocalFilesBrowseAPI,
     LocalFilesExportStorageDetailAPI,
     LocalFilesExportStorageFormLayoutAPI,
     LocalFilesExportStorageListAPI,
@@ -102,38 +77,6 @@ _api_urlpatterns = [
     path('export/s3/<int:pk>/sync', S3ExportStorageSyncAPI.as_view(), name='export-storage-s3-sync'),
     path('export/s3/validate', S3ExportStorageValidateAPI.as_view(), name='export-storage-s3-validate'),
     path('export/s3/form', S3ExportStorageFormLayoutAPI.as_view(), name='export-storage-s3-form'),
-    # Microsoft Azure
-    path('azure/', AzureBlobImportStorageListAPI.as_view(), name='storage-azure-list'),
-    path('azure/<int:pk>', AzureBlobImportStorageDetailAPI.as_view(), name='storage-azure-detail'),
-    path('azure/<int:pk>/sync', AzureBlobImportStorageSyncAPI.as_view(), name='storage-azure-sync'),
-    path('azure/validate', AzureBlobImportStorageValidateAPI.as_view(), name='storage-azure-validate'),
-    path('azure/form', AzureBlobImportStorageFormLayoutAPI.as_view(), name='storage-azure-form'),
-    path(
-        'azure/files',
-        ImportStorageListFilesAPI().as_view(serializer_class=AzureBlobImportStorageSerializer),
-        name='storage-azure-list-files',
-    ),
-    path('export/azure', AzureBlobExportStorageListAPI.as_view(), name='export-storage-azure-list'),
-    path('export/azure/<int:pk>', AzureBlobExportStorageDetailAPI.as_view(), name='export-storage-azure-detail'),
-    path('export/azure/<int:pk>/sync', AzureBlobExportStorageSyncAPI.as_view(), name='export-storage-azure-sync'),
-    path('export/azure/validate', AzureBlobExportStorageValidateAPI.as_view(), name='export-storage-azure-validate'),
-    path('export/azure/form', AzureBlobExportStorageFormLayoutAPI.as_view(), name='export-storage-azure-form'),
-    # Google Cloud Storage
-    path('gcs/', GCSImportStorageListAPI.as_view(), name='storage-gcs-list'),
-    path('gcs/<int:pk>', GCSImportStorageDetailAPI.as_view(), name='storage-gcs-detail'),
-    path('gcs/<int:pk>/sync', GCSImportStorageSyncAPI.as_view(), name='storage-gcs-sync'),
-    path('gcs/validate', GCSImportStorageValidateAPI.as_view(), name='storage-gcs-validate'),
-    path('gcs/form', GCSImportStorageFormLayoutAPI.as_view(), name='storage-gcs-form'),
-    path(
-        'gcs/files',
-        ImportStorageListFilesAPI().as_view(serializer_class=GCSImportStorageSerializer),
-        name='storage-gcs-list-files',
-    ),
-    path('export/gcs', GCSExportStorageListAPI.as_view(), name='export-storage-gcs-list'),
-    path('export/gcs/<int:pk>', GCSExportStorageDetailAPI.as_view(), name='export-storage-gcs-detail'),
-    path('export/gcs/<int:pk>/sync', GCSExportStorageSyncAPI.as_view(), name='export-storage-gcs-sync'),
-    path('export/gcs/validate', GCSExportStorageValidateAPI.as_view(), name='export-storage-gcs-validate'),
-    path('export/gcs/form', GCSExportStorageFormLayoutAPI.as_view(), name='export-storage-gcs-form'),
     # Redis DB
     path('redis/', RedisImportStorageListAPI.as_view(), name='storage-redis-list'),
     path('redis/<int:pk>', RedisImportStorageDetailAPI.as_view(), name='storage-redis-detail'),
@@ -150,42 +93,40 @@ _api_urlpatterns = [
     path('export/redis/<int:pk>/sync', RedisExportStorageSyncAPI.as_view(), name='export-storage-redis-sync'),
     path('export/redis/validate', RedisExportStorageValidateAPI.as_view(), name='export-storage-redis-validate'),
     path('export/redis/form', RedisExportStorageFormLayoutAPI.as_view(), name='export-storage-redis-form'),
+    # Local files
+    path('localfiles/', LocalFilesImportStorageListAPI.as_view(), name='storage-localfiles-list'),
+    path('localfiles/<int:pk>', LocalFilesImportStorageDetailAPI.as_view(), name='storage-localfiles-detail'),
+    path('localfiles/<int:pk>/sync', LocalFilesImportStorageSyncAPI.as_view(), name='storage-localfiles-sync'),
+    path('localfiles/validate', LocalFilesImportStorageValidateAPI.as_view(), name='storage-localfiles-validate'),
+    path('localfiles/form', LocalFilesImportStorageFormLayoutAPI.as_view(), name='storage-localfiles-form'),
+    path(
+        'localfiles/files',
+        ImportStorageListFilesAPI().as_view(serializer_class=LocalFilesImportStorageSerializer),
+        name='storage-localfiles-list-files',
+    ),
+    path('localfiles/browse', LocalFilesBrowseAPI.as_view(), name='storage-localfiles-browse'),
+    path('export/localfiles', LocalFilesExportStorageListAPI.as_view(), name='export-storage-localfiles-list'),
+    path(
+        'export/localfiles/<int:pk>',
+        LocalFilesExportStorageDetailAPI.as_view(),
+        name='export-storage-localfiles-detail',
+    ),
+    path(
+        'export/localfiles/<int:pk>/sync',
+        LocalFilesExportStorageSyncAPI.as_view(),
+        name='export-storage-localfiles-sync',
+    ),
+    path(
+        'export/localfiles/validate',
+        LocalFilesExportStorageValidateAPI.as_view(),
+        name='export-storage-localfiles-validate',
+    ),
+    path(
+        'export/localfiles/form',
+        LocalFilesExportStorageFormLayoutAPI.as_view(),
+        name='export-storage-localfiles-form',
+    ),
 ]
-if settings.ENABLE_LOCAL_FILES_STORAGE:
-    _api_urlpatterns += [
-        # Local files
-        path('localfiles/', LocalFilesImportStorageListAPI.as_view(), name='storage-localfiles-list'),
-        path('localfiles/<int:pk>', LocalFilesImportStorageDetailAPI.as_view(), name='storage-localfiles-detail'),
-        path('localfiles/<int:pk>/sync', LocalFilesImportStorageSyncAPI.as_view(), name='storage-localfiles-sync'),
-        path('localfiles/validate', LocalFilesImportStorageValidateAPI.as_view(), name='storage-localfiles-validate'),
-        path('localfiles/form', LocalFilesImportStorageFormLayoutAPI.as_view(), name='storage-localfiles-form'),
-        path(
-            'localfiles/files',
-            ImportStorageListFilesAPI().as_view(serializer_class=LocalFilesImportStorageSerializer),
-            name='storage-localfiles-list-files',
-        ),
-        path('export/localfiles', LocalFilesExportStorageListAPI.as_view(), name='export-storage-localfiles-list'),
-        path(
-            'export/localfiles/<int:pk>',
-            LocalFilesExportStorageDetailAPI.as_view(),
-            name='export-storage-localfiles-detail',
-        ),
-        path(
-            'export/localfiles/<int:pk>/sync',
-            LocalFilesExportStorageSyncAPI.as_view(),
-            name='export-storage-localfiles-sync',
-        ),
-        path(
-            'export/localfiles/validate',
-            LocalFilesExportStorageValidateAPI.as_view(),
-            name='export-storage-localfiles-validate',
-        ),
-        path(
-            'export/localfiles/form',
-            LocalFilesExportStorageFormLayoutAPI.as_view(),
-            name='export-storage-localfiles-form',
-        ),
-    ]
 
 urlpatterns = [
     path('api/storages/', include((_api_urlpatterns, app_name), namespace='api')),

@@ -54,7 +54,7 @@ const AdaptivePreview = React.memo(
             <IconInfoOutline width={16} height={16} />
             <span>{LARGE_CONFIG_MESSAGE}</span>
             <Button size="small" onClick={onUpdatePreview} waiting={isUpdating} disabled={isUpdating}>
-              {isUpdating ? "Updating..." : "Update Preview"}
+              {isUpdating ? "更新中..." : "更新预览"}
             </Button>
           </div>
           <Preview key={previewKeyProp} config={config} {...previewProps} />
@@ -68,14 +68,13 @@ const AdaptivePreview = React.memo(
 
 const EmptyConfigPlaceholder = () => (
   <div className={configClass.elem("empty-config").toClassName()}>
-    <p>Your labeling configuration is empty. It is required to label your data.</p>
+    <p>当前标注配置为空。要开始标注数据，必须先配置标注界面。</p>
     <p>
-      Start from one of our predefined templates or create your own config on the Code panel. The labeling config is
-      XML-based and you can{" "}
+      你可以从预设模板开始，或在 Code 面板中编写自己的配置。标注配置基于 XML，你也可以{" "}
       <a href="https://labelstud.io/tags/" target="_blank" rel="noreferrer">
-        read about the available tags in our documentation
+        查看可用标签文档
       </a>
-      .
+      。
     </p>
   </div>
 );
@@ -140,8 +139,8 @@ const ConfigureControl = ({ control, template }) => {
   return (
     <div className={configClass.elem("labels").toClassName()}>
       <form className={configClass.elem("add-labels").toClassName()} action="">
-        <h4>{tagname === "Choices" ? "Add choices" : "Add label names"}</h4>
-        <span>Use new line as a separator to add multiple labels</span>
+        <h4>{tagname === "Choices" ? "添加 Choices 选项" : "添加 Labels 标签名"}</h4>
+        <span>使用换行分隔，可一次添加多个标签</span>
         <textarea
           name="labels"
           id=""
@@ -151,13 +150,13 @@ const ConfigureControl = ({ control, template }) => {
           onKeyPress={onKeyPress}
           className="lsf-textarea-ls p-2 px-3"
         />
-        <Button type="button" size="small" look="outlined" onClick={onAddLabels} aria-label="Add labels">
-          Add
+        <Button type="button" size="small" look="outlined" onClick={onAddLabels} aria-label="添加标签">
+          添加
         </Button>
       </form>
       <div className={configClass.elem("current-labels").toClassName()}>
         <h3>
-          {tagname === "Choices" ? "Choices" : "Labels"} ({control.children.length})
+          {tagname === "Choices" ? "Choices 选项" : "Labels 标签"} ({control.children.length})
         </h3>
         <ul>
           {Array.from(control.children).map((label) => (
@@ -263,7 +262,7 @@ const ConfigureSettings = ({ template }) => {
   return (
     <ul className={configClass.elem("settings").toClassName()}>
       <li>
-        <h4>Configure settings</h4>
+        <h4>配置设置</h4>
         <ul className={configClass.elem("object-settings").toClassName()}>{items}</ul>
       </li>
     </ul>
@@ -326,21 +325,21 @@ const ConfigureColumn = ({ template, obj, columns }) => {
     const columnOptions =
       columns?.map((column) => ({
         value: column,
-        label: column === DEFAULT_COLUMN ? "<imported file>" : `$${column}`,
+        label: column === DEFAULT_COLUMN ? "<导入文件>" : `$${column}`,
       })) ?? [];
     if (!columns?.length) {
-      columnOptions.push({ value, label: "<imported file>" });
+      columnOptions.push({ value, label: "<导入文件>" });
     }
-    columnOptions.push({ value: "-", label: "<set manually>" });
+    columnOptions.push({ value: "-", label: "<手动设置>" });
     return columnOptions;
   }, [columns, value]);
 
   return (
     <p>
-      Use {obj.tagName.toLowerCase()}
+      使用 {obj.tagName.toLowerCase()}
       {template.objects > 1 && ` for ${obj.getAttribute("name")}`}
-      {" from "}
-      {columns?.length > 0 && columns[0] !== DEFAULT_COLUMN && "field "}
+      {" 对应 "}
+      {columns?.length > 0 && columns[0] !== DEFAULT_COLUMN && "字段 "}
       <Select
         triggerClassName="border"
         onChange={selectValue}
@@ -359,16 +358,15 @@ const ConfigureColumns = ({ columns, template }) => {
 
   return (
     <div className={configClass.elem("object").toClassName()}>
-      <h4>Configure data</h4>
+      <h4>配置数据</h4>
       {template.objects.length > 1 && columns?.length > 0 && columns.length < template.objects.length && (
         <p className={configClass.elem("object-error").toClassName()}>
-          This template requires more data then you have for now
+          这个模板当前需要的数据字段比你现有的更多
         </p>
       )}
       {columns?.length === 0 && (
         <p className={configClass.elem("object-error").toClassName()}>
-          To select which field(s) to label you need to upload the data. Alternatively, you can provide it using Code
-          mode.
+          若要选择标注哪些字段，需要先上传数据。也可以直接在 Code 模式中手动填写。
         </p>
       )}
       {template.objects.map((obj) => (
@@ -621,11 +619,11 @@ const Configurator = ({
 
   const extra = (
     <p className={configClass.elem("tags-link").toClassName()}>
-      Configure the labeling interface with tags.&nbsp;
+      使用标签配置标注界面。&nbsp;
       <a href="https://labelstud.io/tags/" target="_blank" rel="noreferrer">
-        See all tags
+        查看全部标签
       </a>
-      .
+      。
     </p>
   );
 
@@ -639,7 +637,7 @@ const Configurator = ({
         }}
       >
         <div className="flex flex-col">
-          <h1>Labeling Interface{hasChanges ? " *" : ""}</h1>
+          <h1>标注界面{hasChanges ? " *" : ""}</h1>
           <header>
             <Button
               type="button"
@@ -647,11 +645,11 @@ const Configurator = ({
               onClick={onBrowse}
               size="small"
               look="outlined"
-              aria-label="Browse templates"
+              aria-label="浏览模板"
             >
-              Browse Templates
+              浏览模板
             </Button>
-            <ToggleItems items={{ code: "Code", visual: "Visual" }} active={configure} onSelect={onSelect} />
+            <ToggleItems items={{ code: "Code 代码", visual: "Visual 可视化" }} active={configure} onSelect={onSelect} />
           </header>
           <div className={configClass.elem("editor").toClassName()}>
             {configure === "code" && (
@@ -704,12 +702,12 @@ const Configurator = ({
               {saved && (
                 <div className={cn("form-indicator").toClassName()}>
                   <span className={cn("form-indicator").elem("item").mod({ type: "success" }).toClassName()}>
-                    Saved!
+                    已保存
                   </span>
                 </div>
               )}
-              <Button className="w-[120px]" onClick={onSave} waiting={waiting} aria-label="Save configuration">
-                {waiting ? "Saving..." : "Save"}
+              <Button className="w-[120px]" onClick={onSave} waiting={waiting} aria-label="保存配置">
+                {waiting ? "保存中..." : "保存"}
               </Button>
               {isFF(FF_UNSAVED_CHANGES) && <UnsavedChanges hasChanges={hasChanges} onSave={onSave} />}
             </Form.Actions>
@@ -729,7 +727,7 @@ const Configurator = ({
               data-testid="preview-updating-placeholder"
             >
               <div className={configClass.elem("preview-updating").toClassName()}>
-                <Typography color="secondary">Updating preview…</Typography>
+                <Typography color="secondary">正在更新预览...</Typography>
               </div>
             </div>
           ) : (

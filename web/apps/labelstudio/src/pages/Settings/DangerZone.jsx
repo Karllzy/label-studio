@@ -189,6 +189,7 @@ export const DangerZone = () => {
       },
       {
         type: "project",
+        disabled: project?.can_delete_project === false,
         help: "Deleting a project removes all tasks, annotations, and project data from the database.",
         label: "Delete Project",
       },
@@ -244,5 +245,5 @@ export const DangerZone = () => {
   );
 };
 
-DangerZone.title = "Danger Zone";
+DangerZone.title = "危险区";
 DangerZone.path = "/danger-zone";

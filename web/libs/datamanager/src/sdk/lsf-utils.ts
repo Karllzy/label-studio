@@ -78,4 +78,6 @@ export const getAnnotationSnapshot = (c: LSFAnnotation) => ({
   leadTime: c.leadTime,
   userGenerate: !!c.userGenerate,
   sentUserGenerate: !!c.sentUserGenerate,
+  ...(c.review_status !== undefined ? { review_status: c.review_status } : {}),
+  ...(c.was_cancelled !== undefined ? { was_cancelled: c.was_cancelled } : {}),
 });

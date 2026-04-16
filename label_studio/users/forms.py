@@ -15,6 +15,7 @@ DISPLAY_NAME_LENGTH = 100
 USERNAME_LENGTH_ERR = f'Please enter a username {USERNAME_MAX_LENGTH} characters or fewer in length'
 DISPLAY_NAME_LENGTH_ERR = f'Please enter a display name {DISPLAY_NAME_LENGTH} characters or fewer in length'
 INVALID_USER_ERROR = "The email and password you entered don't match."
+IDENTIFIER_MAX_LENGTH = 256
 
 FOUND_US_ELABORATE = 'Other'
 FOUND_US_OPTIONS = (
@@ -32,30 +33,29 @@ logger = logging.getLogger(__name__)
 class LoginForm(forms.Form):
     """For logging in to the app and all - session based"""
 
-    # use username instead of email when LDAP enabled
-    email = forms.CharField(label='User') if settings.USE_USERNAME_FOR_LOGIN else forms.EmailField(label='Email')
+    email = forms.CharField(label='用户名或邮箱')
     password = forms.CharField(widget=forms.PasswordInput())
     persist_session = forms.BooleanField(widget=forms.CheckboxInput(), required=False)
 
     def clean(self, *args, **kwargs):
         cleaned = super(LoginForm, self).clean()
-        email = cleaned.get('email', '').lower()
+        identifier = cleaned.get('email', '').strip()
         password = cleaned.get('password', '')
-        if len(email) >= EMAIL_MAX_LENGTH:
-            raise forms.ValidationError('Email is too long')
+        if len(identifier) >= IDENTIFIER_MAX_LENGTH:
+            raise forms.ValidationError('用户名或邮箱过长')
 
         # advanced way for user auth
-        user = settings.USER_AUTH(User, email, password)
+        user = settings.USER_AUTH(User, identifier, password)
 
         # regular access
         if user is None:
-            user = auth.authenticate(email=email, password=password)
+            user = auth.authenticate(username=identifier, password=password)
 
         if user and user.is_active:
             persist_session = cleaned.get('persist_session', False)
             return {'user': user, 'persist_session': persist_session}
         else:
-            raise forms.ValidationError(INVALID_USER_ERROR)
+            raise forms.ValidationError('用户名/邮箱或密码不正确。')
 
 
 class UserSignupForm(forms.Form):

@@ -3,9 +3,11 @@
 from core.permissions import all_permissions
 from core.utils.common import load_func
 from django.conf import settings
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_flex_fields import FlexFieldsModelSerializer
 from rest_framework import serializers
-from users.models import User
+from users.models import User, normalize_username
 
 
 class BaseUserSerializer(FlexFieldsModelSerializer):
@@ -97,8 +99,76 @@ class BaseUserSerializer(FlexFieldsModelSerializer):
 
 
 class BaseUserSerializerUpdate(BaseUserSerializer):
+    current_password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    new_password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    new_password_confirm = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
     class Meta(BaseUserSerializer.Meta):
+        fields = BaseUserSerializer.Meta.fields + ('current_password', 'new_password', 'new_password_confirm')
         read_only_fields = ('email',)
+
+    def validate_username(self, value):
+        username = normalize_username(value)
+        if not username:
+            raise serializers.ValidationError('用户名不能为空。')
+
+        qs = User.objects.filter(username=username)
+        if self.instance is not None:
+            qs = qs.exclude(pk=self.instance.pk)
+
+        if qs.exists():
+            raise serializers.ValidationError('该用户名已存在。')
+
+        return username
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        current_password = attrs.get('current_password')
+        new_password = attrs.get('new_password')
+        new_password_confirm = attrs.get('new_password_confirm')
+
+        password_fields_provided = any(
+            field in self.initial_data for field in ('current_password', 'new_password', 'new_password_confirm')
+        )
+
+        if password_fields_provided:
+            if self.instance is None or self.instance.pk != self.context['request'].user.pk:
+                raise serializers.ValidationError({'new_password': '只能修改当前登录账号的密码。'})
+
+            if not current_password:
+                raise serializers.ValidationError({'current_password': '请输入当前密码。'})
+
+            if not self.instance.check_password(current_password):
+                raise serializers.ValidationError({'current_password': '当前密码不正确。'})
+
+            if not new_password:
+                raise serializers.ValidationError({'new_password': '请输入新密码。'})
+
+            if new_password != new_password_confirm:
+                raise serializers.ValidationError({'new_password_confirm': '两次输入的新密码不一致。'})
+
+            try:
+                validate_password(new_password, self.instance)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({'new_password': list(exc.messages)})
+
+        return attrs
+
+    def update(self, instance, validated_data):
+        current_password = validated_data.pop('current_password', None)
+        new_password = validated_data.pop('new_password', None)
+        validated_data.pop('new_password_confirm', None)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        password_changed = bool(current_password and new_password)
+        if password_changed:
+            instance.set_password(new_password)
+            self.context['password_changed'] = True
+
+        instance.save()
+        return instance
 
 
 class BaseWhoAmIUserSerializer(BaseUserSerializer):
@@ -237,3 +307,33 @@ class HotkeysSerializer(serializers.Serializer):
 UserSerializer = load_func(settings.USER_SERIALIZER)
 WhoAmIUserSerializer = load_func(settings.WHOAMI_USER_SERIALIZER)
 UserSerializerUpdate = load_func(settings.USER_SERIALIZER_UPDATE)
+
+
+class AdminUserSerializer(serializers.ModelSerializer):
+    """Serializer for admin user management — list / detail / update."""
+
+    password = serializers.CharField(write_only=True, min_length=8, required=False)
+
+    class Meta:
+        model = User
+        fields = [
+            'id', 'username', 'email', 'first_name', 'last_name',
+            'is_active', 'is_superuser', 'date_joined', 'last_login',
+            'password',
+        ]
+        read_only_fields = ['id', 'date_joined', 'last_login']
+
+
+class AdminUserCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating a user via admin API."""
+
+    password = serializers.CharField(write_only=True, min_length=8)
+    username = serializers.CharField(required=False, allow_blank=True)
+
+    class Meta:
+        model = User
+        fields = ['username', 'email', 'password', 'first_name', 'last_name']
+
+    def create(self, validated_data):
+        password = validated_data.pop('password')
+        return User.objects.create_user(password=password, **validated_data)

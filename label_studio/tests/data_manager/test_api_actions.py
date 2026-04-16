@@ -4,6 +4,9 @@ import json
 
 import pytest
 from django.db import transaction
+from django.test import Client
+from organizations.models import OrganizationMember
+from users.models import User
 from io_storages.azure_blob.models import (
     AzureBlobImportStorage,
     AzureBlobImportStorageLink,
@@ -17,7 +20,7 @@ from io_storages.redis.models import RedisImportStorage, RedisImportStorageLink
 from io_storages.s3.models import S3ImportStorage, S3ImportStorageLink
 from projects.models import Project
 
-from ..utils import make_annotation, make_prediction, make_task, project_id  # noqa
+from ..utils import make_annotation, make_prediction, make_task, project_id, signin  # noqa
 
 
 @pytest.mark.parametrize(
@@ -311,3 +314,59 @@ def test_action_cache_labels(business_client, project_id):
     assert status.status_code == 200, 'status code wrong'
     assert tasks.get(id=task1.id).data.get('cache_label1') == 'Car', 'cache_label1 wrong for task 1'
     assert tasks.get(id=task2.id).data.get('cache_label1') == 'Airplane, Car', 'cache_label1 wrong for task 2'
+
+
+@pytest.mark.django_db
+def test_dm_next_task_allowed_for_project_annotator(business_client, project_id):
+    """Annotators must pass action permission checks (project-scoped has_perm)."""
+    org = business_client.organization
+    annotator = User.objects.create(email='ann_dm_next_task@pytest.net')
+    annotator.set_password('pytest')
+    annotator.save()
+    OrganizationMember.objects.create(user=annotator, organization=org)
+
+    project = Project.objects.get(pk=project_id)
+    project.add_collaborator(annotator)
+    make_task({'data': {}}, project)
+
+    client = Client()
+    assert signin(client, annotator.email, 'pytest').status_code == 302
+
+    r = client.post(
+        f'/api/dm/actions?project={project_id}&id=next_task',
+        data=json.dumps({'selectedItems': {'all': True, 'excluded': []}}),
+        content_type='application/json',
+    )
+    assert r.status_code == 200, r.content
+
+
+@pytest.mark.django_db
+def test_dm_next_task_respects_current_position_for_dm_queue(business_client, project_id):
+    project = Project.objects.get(pk=project_id)
+    first = make_task({'data': {'text': 'first'}}, project)
+    second = make_task({'data': {'text': 'second'}}, project)
+
+    response = business_client.post(
+        f'/api/dm/actions?project={project_id}&id=next_task',
+        data=json.dumps({'selectedItems': {'all': True, 'excluded': []}, 'currentTaskId': first.id}),
+        content_type='application/json',
+    )
+
+    assert response.status_code == 200, response.content
+    assert response.json()['id'] == second.id
+
+
+@pytest.mark.django_db
+def test_dm_next_task_falls_back_to_filtered_queue_when_current_not_in_it(business_client, project_id):
+    project = Project.objects.get(pk=project_id)
+    first = make_task({'data': {'text': 'first'}}, project)
+    second = make_task({'data': {'text': 'second'}}, project)
+
+    response = business_client.post(
+        f'/api/dm/actions?project={project_id}&id=next_task',
+        data=json.dumps({'selectedItems': {'all': False, 'included': [second.id]}, 'currentTaskId': first.id}),
+        content_type='application/json',
+    )
+
+    assert response.status_code == 200, response.content
+    assert response.json()['id'] == second.id

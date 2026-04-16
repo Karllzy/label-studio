@@ -11,6 +11,10 @@ export const EntityTab = observer(
     ({ entity, selected, style, onClick, bordered = true, prediction = false, displayGroundTruth = false }, ref) => {
       const isUnsaved = (entity.userGenerate && !entity.sentUserGenerate) || entity.draftSelected;
       const infoIsHidden = entity.store.hasInterface("annotations:hide-info");
+      const formattedScore =
+        prediction && typeof entity.score === "number" && Number.isFinite(entity.score)
+          ? entity.score.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")
+          : null;
 
       return (
         <div
@@ -39,6 +43,8 @@ export const EntityTab = observer(
                 ID {entity.pk ?? entity.id} {isUnsaved && "*"}
               </div>
             )}
+
+            {formattedScore && <div className={cn("entity-tab").elem("score").toClassName()}>score {formattedScore}</div>}
 
             {displayGroundTruth && entity.ground_truth && (
               <IconStar className={cn("entity-tab").elem("ground-truth").toClassName()} />

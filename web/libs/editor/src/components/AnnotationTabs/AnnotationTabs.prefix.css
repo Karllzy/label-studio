@@ -125,4 +125,11 @@
   &__skipped {
     color: var(--color-negative-content);
   }
+
+  &__score {
+    color: var(--color-neutral-content-subtler);
+    font-size: 12px;
+    font-weight: var(--font-weight-normal);
+    white-space: nowrap;
+  }
 }

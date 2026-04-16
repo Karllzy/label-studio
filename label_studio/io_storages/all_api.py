@@ -24,16 +24,14 @@ get_storage_list = load_func(settings.GET_STORAGE_LIST)
 
 def _get_common_storage_list():
     storage_list = get_storage_list()
-    if settings.ENABLE_LOCAL_FILES_STORAGE:
-        storage_list += [
-            {
-                'name': 'localfiles',
-                'title': 'Local files',
-                'import_list_api': LocalFilesImportStorageListAPI,
-                'export_list_api': LocalFilesExportStorageListAPI,
-            }
-        ]
-
+    storage_list += [
+        {
+            'name': 'localfiles',
+            'title': 'Local files',
+            'import_list_api': LocalFilesImportStorageListAPI,
+            'export_list_api': LocalFilesExportStorageListAPI,
+        }
+    ]
     return storage_list
 
 

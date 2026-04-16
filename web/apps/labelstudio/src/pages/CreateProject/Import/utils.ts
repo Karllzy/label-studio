@@ -1,5 +1,8 @@
 import { API } from "apps/labelstudio/src/providers/ApiProvider";
 
+const CHUNK_SIZE = 50 * 1024 * 1024; // 50 MB
+const CHUNKED_UPLOAD_THRESHOLD = 50 * 1024 * 1024; // Files larger than 50 MB use chunked upload
+
 export const importFiles = async ({
   files,
   body,
@@ -8,15 +11,17 @@ export const importFiles = async ({
   onUploadFinish,
   onFinish,
   onError,
+  onProgress,
   dontCommitToProject,
 }: {
-  files: { name: string }[];
+  files: { name: string; size?: number }[];
   body: Record<string, any> | FormData;
   project: APIProject;
   onUploadStart?: (files: { name: string }[]) => void;
   onUploadFinish?: (files: { name: string }[]) => void;
   onFinish?: (response: any) => void;
   onError?: (response: any) => void;
+  onProgress?: (progress: { file: string; percent: number }) => void;
   dontCommitToProject?: boolean;
 }) => {
   onUploadStart?.(files);
@@ -41,3 +46,94 @@ export const importFiles = async ({
 
   onUploadFinish?.(files);
 };
+
+export const chunkedUploadFile = async ({
+  file,
+  project,
+  onProgress,
+  onError,
+  onFinish,
+}: {
+  file: File;
+  project: APIProject;
+  onProgress?: (progress: { percent: number; uploaded: number; total: number }) => void;
+  onError?: (error: any) => void;
+  onFinish?: (response: any) => void;
+}) => {
+  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+  try {
+    const initRes = await API.invoke("chunkedUploadInit", { pk: project.id }, {
+      body: {
+        filename: file.name,
+        total_size: file.size,
+        total_chunks: totalChunks,
+      },
+    });
+
+    if (!initRes || initRes.error) {
+      onError?.(initRes?.response || "Failed to initialize upload");
+      return;
+    }
+
+    const uploadId = initRes.upload_id;
+
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size);
+      const chunk = file.slice(start, end);
+
+      const formData = new FormData();
+      formData.append("upload_id", uploadId);
+      formData.append("chunk_index", String(i));
+      formData.append("chunk", chunk, `chunk_${i}`);
+
+      let retries = 3;
+      let success = false;
+
+      while (retries > 0 && !success) {
+        try {
+          const partRes = await API.invoke(
+            "chunkedUploadPart",
+            { pk: project.id },
+            { headers: { "Content-Type": "multipart/form-data" }, body: formData },
+          );
+
+          if (partRes && !partRes.error) {
+            success = true;
+            onProgress?.({
+              percent: Math.round(((i + 1) / totalChunks) * 100),
+              uploaded: end,
+              total: file.size,
+            });
+          } else {
+            retries--;
+          }
+        } catch {
+          retries--;
+        }
+      }
+
+      if (!success) {
+        onError?.(`Failed to upload chunk ${i + 1}/${totalChunks} after 3 retries`);
+        return;
+      }
+    }
+
+    const completeRes = await API.invoke(
+      "chunkedUploadComplete",
+      { pk: project.id },
+      { body: { upload_id: uploadId, commit_to_project: false } },
+    );
+
+    if (completeRes && !completeRes.error) {
+      onFinish?.(completeRes);
+    } else {
+      onError?.(completeRes?.response || "Failed to complete upload");
+    }
+  } catch (err) {
+    onError?.(err);
+  }
+};
+
+export const isLargeFile = (file: File) => file.size > CHUNKED_UPLOAD_THRESHOLD;

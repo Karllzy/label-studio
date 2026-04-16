@@ -1,10 +1,9 @@
 import { inject } from "mobx-react";
-import { Button, ButtonGroup } from "@humansignal/ui";
-import { Interface } from "../../Common/Interface";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Button, ButtonGroup, Dropdown } from "@humansignal/ui";
 import { IconChevronDown } from "@humansignal/icons";
-import { Dropdown } from "@humansignal/ui";
+import { Interface } from "../../Common/Interface";
 import { Menu } from "../../Common/Menu/Menu";
+import { dmUserStorageKey } from "../../../utils/dm-user-storage";
 
 const injector = inject(({ store }) => {
   const { dataStore, currentView } = store;
@@ -15,102 +14,97 @@ const injector = inject(({ store }) => {
     store,
     canLabel: totalTasks > 0 || foundTasks > 0,
     target: currentView?.target ?? "tasks",
-    selectedCount: currentView?.selectedCount,
-    allSelected: currentView?.allSelected,
+    selectedCount: currentView?.selectedCount ?? 0,
+    hasFilters: (currentView?.filtersApplied ?? 0) > 0,
   };
 });
 
-export const LabelButton = injector(({ store, canLabel, size, target, selectedCount }) => {
+export const LabelButton = injector(({ store, canLabel, size, target, selectedCount, hasFilters }) => {
   const disabled = target === "annotations";
-  const triggerRef = useRef();
-  const [isOpen, setIsOpen] = useState(false);
-
-  const handleClickOutside = useCallback((e) => {
-    const el = triggerRef.current;
-
-    if (el && !el.contains(e.target)) {
-      setIsOpen(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    document.addEventListener("click", handleClickOutside, { capture: true });
-
-    return () => {
-      document.removeEventListener("click", handleClickOutside, {
-        capture: true,
-      });
-    };
-  }, []);
 
   const onLabelAll = () => {
-    localStorage.setItem("dm:labelstream:mode", "all");
+    localStorage.setItem(dmUserStorageKey("dm:labelstream:mode"), "all");
     store.startLabelStream();
   };
 
   const onLabelVisible = () => {
-    localStorage.setItem("dm:labelstream:mode", "filtered");
+    localStorage.setItem(dmUserStorageKey("dm:labelstream:mode"), "filtered");
     store.startLabelStream();
   };
 
-  const triggerStyle = {
-    width: 24,
-    padding: 0,
-    borderTopLeftRadius: 0,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: isOpen ? 0 : undefined,
-    boxShadow: "none",
-  };
+  const primaryAction = selectedCount > 0 ? onLabelAll : hasFilters ? onLabelVisible : onLabelAll;
+  const primaryLabel =
+    selectedCount > 0 ? `标注 ${selectedCount} 条任务` : hasFilters ? "按当前列表筛选标注" : "标注全部任务";
 
-  const primaryStyle = {
-    width: 160,
-    padding: 0,
-    borderTopRightRadius: 0,
-    borderBottomRightRadius: 0,
-    borderBottomLeftRadius: isOpen ? 0 : undefined,
-  };
+  const menuItems = [];
 
-  const secondStyle = {
-    width: triggerStyle.width + primaryStyle.width,
-    padding: 0,
-    display: isOpen ? "flex" : "none",
-    position: "absolute",
-    zIndex: 10,
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
-  };
+  if (selectedCount > 0 && hasFilters) {
+    menuItems.push({
+      key: "filtered",
+      label: "按当前列表筛选标注",
+      onClick: onLabelVisible,
+    });
+  }
 
-  selectedCount;
+  if (hasFilters || selectedCount > 0) {
+    menuItems.push({
+      key: "all",
+      label: "标注全部任务",
+      onClick: onLabelAll,
+    });
+  }
 
-  return canLabel ? (
+  if (!canLabel) return null;
+
+  const primaryButton = (
+    <Button
+      size={size ?? "small"}
+      variant="primary"
+      look="outlined"
+      disabled={disabled}
+      style={
+        menuItems.length > 0
+          ? { width: 160, padding: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0 }
+          : undefined
+      }
+      onClick={primaryAction}
+    >
+      {primaryLabel}
+    </Button>
+  );
+
+  return (
     <Interface name="labelButton">
-      <div>
+      {menuItems.length > 0 ? (
         <ButtonGroup>
-          <Button
-            size={size ?? "small"}
-            variant="primary"
-            look="outlined"
-            disabled={disabled}
-            style={primaryStyle}
-            onClick={onLabelAll}
-          >
-            Label {selectedCount ? selectedCount : "All"} Task
-            {!selectedCount || selectedCount > 1 ? "s" : ""}
-          </Button>
+          {primaryButton}
           <Dropdown.Trigger
             alignment="bottom-right"
             content={
               <Menu size="compact">
-                <Menu.Item onClick={onLabelVisible}>Label Tasks As Displayed</Menu.Item>
+                {menuItems.map((item) => (
+                  <Menu.Item key={item.key} onClick={item.onClick}>
+                    {item.label}
+                  </Menu.Item>
+                ))}
               </Menu>
             }
           >
-            <Button size={size} look="outlined" variant="primary" aria-label={"Toggle open"}>
+            <Button
+              size={size}
+              look="outlined"
+              variant="primary"
+              disabled={disabled}
+              aria-label="Toggle open"
+              style={{ width: 24, padding: 0, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
+            >
               <IconChevronDown />
             </Button>
           </Dropdown.Trigger>
         </ButtonGroup>
-      </div>
+      ) : (
+        primaryButton
+      )}
     </Interface>
-  ) : null;
+  );
 });

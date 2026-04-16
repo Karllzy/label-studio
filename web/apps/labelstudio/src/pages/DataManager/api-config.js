@@ -34,6 +34,9 @@ export const APIConfig = {
     /** Next task (labelstream, default sequential) */
     nextTask: "/tasks/next",
 
+    /** Pending review queue for reviewer flow */
+    pendingReviews: "/../projects/:projectID/pending-reviews/",
+
     /** Single annotation */
     annotation: "/../annotations/:id",
 
@@ -54,6 +57,9 @@ export const APIConfig = {
     /** Update annotation */
     updateAnnotation: "PATCH:/../annotations/:annotationID",
 
+    /** Approve or reject annotation (pending review workflow) */
+    reviewAnnotation: "POST:/../annotations/:annotationID/review/",
+
     /** Delete annotation */
     deleteAnnotation: "DELETE:/../annotations/:annotationID",
 
@@ -71,5 +77,8 @@ export const APIConfig = {
 
     /** Invoke a particular action */
     invokeAction: "POST:/actions",
+
+    /** Assign tasks to an annotator (manual distribution); body: { task_ids, annotator_id } */
+    assignTasks: "POST:/../projects/:pk/assign-tasks/",
   },
 };

@@ -51,6 +51,11 @@ type AcceptButtonProps = {
   store: MSTStore;
 };
 
+type AdoptButtonProps = {
+  disabled: boolean;
+  store: MSTStore;
+};
+
 export const AcceptButton = memo(
   observer(({ disabled, history, store }: AcceptButtonProps) => {
     const annotation = store.annotationStore.selected;
@@ -58,13 +63,13 @@ export const AcceptButton = memo(
     const hasChanges = history.canUndo || annotation.versions.draft;
     const hasIncompleteRegions = annotation.hasIncompletePolygons;
     const isDisabled = disabled || hasIncompleteRegions;
-    const tooltip = hasIncompleteRegions ? INCOMPLETE_ACCEPT_TOOLTIP : "Accept annotation: [ Ctrl+Enter ]";
+    const tooltip = hasIncompleteRegions ? INCOMPLETE_ACCEPT_TOOLTIP : "通过审核 [ Ctrl+Enter ]";
 
     return (
       <Tooltip title={tooltip} disabled={!store.settings.enableTooltips} className="whitespace-nowrap max-w-none">
         <Button
           key="accept"
-          aria-label="accept-annotation"
+          aria-label="通过标注"
           disabled={isDisabled}
           onClick={async () => {
             annotation.submissionInProgress();
@@ -73,7 +78,39 @@ export const AcceptButton = memo(
           }}
           data-testid="bottombar-accept-button"
         >
-          {hasChanges ? "Fix + Accept" : "Accept"}
+          {hasChanges ? "修改后通过" : "通过"}
+        </Button>
+      </Tooltip>
+    );
+  }),
+);
+
+export const AdoptButton = memo(
+  observer(({ disabled, store }: AdoptButtonProps) => {
+    const annotation = store.annotationStore.selected;
+    const hasIncompleteRegions = annotation.hasIncompletePolygons;
+    const isDisabled = disabled || hasIncompleteRegions || annotation.ground_truth === true;
+    const tooltip = hasIncompleteRegions
+      ? INCOMPLETE_ACCEPT_TOOLTIP
+      : annotation.ground_truth === true
+        ? "当前结果已被采纳"
+        : "采纳当前结果为最终结果";
+
+    return (
+      <Tooltip title={tooltip} disabled={!store.settings.enableTooltips} className="whitespace-nowrap max-w-none">
+        <Button
+          key="adopt"
+          aria-label="采纳当前标注"
+          disabled={isDisabled}
+          look="outlined"
+          onClick={async () => {
+            annotation.submissionInProgress();
+            await store.commentStore.commentFormSubmit();
+            annotation.setGroundTruth(true);
+          }}
+          data-testid="bottombar-adopt-button"
+        >
+          {annotation.ground_truth === true ? "已采纳" : "采纳"}
         </Button>
       </Tooltip>
     );
@@ -83,11 +120,11 @@ export const AcceptButton = memo(
 export const RejectButtonDefinition = {
   id: "reject",
   name: "reject",
-  title: "Reject",
+  title: "驳回",
   variant: "negative",
   look: "outlined",
-  ariaLabel: "reject-annotation",
-  tooltip: "Reject annotation: [ Ctrl+Space ]",
+  ariaLabel: "驳回标注",
+  tooltip: "驳回标注 [ Ctrl+Space ]",
   // @todo we need this for types compatibility, but better to fix CustomButtonType
   disabled: false,
 };
@@ -120,21 +157,21 @@ export const SkipButton = memo(
     const tooltip: string = overlapReached
       ? store.overlapReachedMessage
       : canSkip
-        ? "Cancel (skip) task [ Ctrl+Space ]"
-        : "This task cannot be skipped";
+        ? "跳过任务 [ Ctrl+Space ]"
+        : "此任务不可跳过";
 
     const showInfoIcon = skipDisabled && hasForceSkipPermission;
 
     return (
       <>
         {showInfoIcon && (
-          <Tooltip title="Annotators and Reviewers will not be able to skip this task">
+          <Tooltip title="标注员与审核员将无法跳过此任务">
             <IconInfoOutline width={20} height={20} className="text-neutral-content ml-auto cursor-pointer" />
           </Tooltip>
         )}
         <Button
           key="skip"
-          aria-label="skip-task"
+          aria-label="跳过当前任务"
           disabled={isDisabled}
           look="outlined"
           tooltip={tooltip}
@@ -152,7 +189,7 @@ export const SkipButton = memo(
           }}
           data-testid="bottombar-skip-button"
         >
-          Skip
+          跳过
         </Button>
       </>
     );
@@ -164,8 +201,8 @@ export const UnskipButton = memo(
     return (
       <Button
         key="cancel-skip"
-        tooltip="Cancel skip: []"
-        aria-label="cancel-skip"
+        tooltip="取消跳过"
+        aria-label="取消跳过并返回标注"
         look="outlined"
         disabled={disabled}
         onClick={async () => {
@@ -177,7 +214,7 @@ export const UnskipButton = memo(
         }}
         data-testid="bottombar-unskip-button"
       >
-        Cancel skip
+        取消跳过
       </Button>
     );
   }),

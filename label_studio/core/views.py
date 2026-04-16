@@ -15,6 +15,7 @@ from core.utils.common import collect_versions
 from core.utils.io import find_file
 from django.conf import settings
 from django.contrib.auth import logout
+from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render, reverse
 from django.views.decorators.csrf import csrf_exempt
@@ -44,6 +45,13 @@ def main(request):
 
     # not authenticated
     return redirect(reverse('user-login'))
+
+
+@login_required
+def admin_users_page(request):
+    if not request.user.is_superuser:
+        return HttpResponseForbidden('Access denied')
+    return render(request, 'organizations/people_list.html')
 
 
 def version_page(request):

@@ -56,7 +56,7 @@ _view_request_body = {
     decorator=extend_schema(
         tags=['Data Manager'],
         summary='List views',
-        description='List all views for a specific project.',
+        description='List Data Manager views for the current user (tabs are private per user; each user only sees their own).',
         parameters=[
             OpenApiParameter(name='project', type=OpenApiTypes.INT, location='query', description='Project ID'),
         ],
@@ -165,7 +165,7 @@ class ViewAPI(viewsets.ModelViewSet):
     @extend_schema(
         tags=['Data Manager'],
         summary='Delete all project views',
-        description='Delete all views for a specific project.',
+        description='Delete all Data Manager views for a specific project belonging to the current user.',
         parameters=[
             OpenApiParameter(
                 name='project',
@@ -234,7 +234,13 @@ class ViewAPI(viewsets.ModelViewSet):
         return Response(status=200)
 
     def get_queryset(self):
-        return View.objects.filter(project__organization=self.request.user.active_organization).order_by('order', 'id')
+        return (
+            View.objects.filter(
+                project__organization=self.request.user.active_organization,
+                user=self.request.user,
+            )
+            .order_by('order', 'id')
+        )
 
 
 class TaskPagination(PageNumberPagination):
@@ -365,7 +371,7 @@ class TaskListAPI(generics.ListCreateAPIView):
             project = generics.get_object_or_404(Project, pk=project_pk)
             self.check_object_permissions(request, project)
         elif view_pk:
-            view = generics.get_object_or_404(View, pk=view_pk)
+            view = generics.get_object_or_404(View, pk=view_pk, user=request.user)
             project = view.project
             self.check_object_permissions(request, project)
         else:
@@ -456,7 +462,7 @@ class TaskListAPI(generics.ListCreateAPIView):
                                     'type': 'Number',
                                     'help': 'Task ID',
                                     'target': 'tasks',
-                                    'visibility_defaults': {'explore': True, 'labeling': False},
+                                    'visibility_defaults': {'explore': False, 'labeling': False},
                                     'project_defined': False,
                                 },
                                 {
@@ -513,11 +519,10 @@ class ProjectStateAPI(APIView):
         pk = int_from_request(request.GET, 'project', 1)  # replace 1 to None, it's for debug only
         project = generics.get_object_or_404(Project, pk=pk)
         self.check_object_permissions(request, project)
-        data = ProjectSerializer(project).data
+        data = ProjectSerializer(project, context={'request': request}).data
 
         data.update(
             {
-                'can_delete_tasks': True,
                 'can_manage_annotations': True,
                 'can_manage_tasks': True,
                 'source_syncing': False,

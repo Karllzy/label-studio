@@ -1,6 +1,7 @@
 """This file and its contents are licensed under the Apache License 2.0. Please see the included NOTICE for copyright information and LICENSE for a copy of the license."""
 
 import datetime
+import re
 from typing import Optional
 
 from core.feature_flags import flag_set
@@ -28,6 +29,33 @@ for r in range(YEAR_START, (datetime.datetime.now().year + 1)):
 year = models.IntegerField(_('year'), choices=YEAR_CHOICES, default=datetime.datetime.now().year)
 
 
+def normalize_username(username: str) -> str:
+    username = (username or '').strip().lower()
+    username = re.sub(r'\s+', '_', username)
+    return username
+
+
+def build_default_username(email: str) -> str:
+    local_part = (email or '').split('@', 1)[0]
+    return normalize_username(local_part) or 'user'
+
+
+def build_unique_username(model, base_username: str, exclude_pk: Optional[int] = None) -> str:
+    username = normalize_username(base_username) or 'user'
+    suffix = 1
+
+    while True:
+        qs = model.objects.filter(username=username)
+        if exclude_pk is not None:
+            qs = qs.exclude(pk=exclude_pk)
+
+        if not qs.exists():
+            return username
+
+        username = f'{normalize_username(base_username) or "user"}{suffix}'
+        suffix += 1
+
+
 class UserManager(BaseUserManager):
     use_in_migrations = True
 
@@ -39,7 +67,13 @@ class UserManager(BaseUserManager):
             raise ValueError('Must specify an email address')
 
         email = self.normalize_email(email)
-        user = self.model(email=email, **extra_fields)
+        username = extra_fields.pop('username', None)
+        if username:
+            username = normalize_username(username)
+        else:
+            username = build_unique_username(self.model, build_default_username(email))
+
+        user = self.model(email=email, username=username, **extra_fields)
 
         user.set_password(password)
         user.save(using=self._db)
@@ -113,7 +147,7 @@ class User(UserMixin, AbstractBaseUser, PermissionsMixin, UserLastActivityMixin)
     Username and password are required. Other fields are optional.
     """
 
-    username = models.CharField(_('username'), max_length=256)
+    username = models.CharField(_('username'), max_length=256, unique=True)
     email = models.EmailField(_('email address'), unique=True, blank=True)
 
     first_name = models.CharField(_('first name'), max_length=256, blank=True)
@@ -197,6 +231,7 @@ class User(UserMixin, AbstractBaseUser, PermissionsMixin, UserLastActivityMixin)
     def clean(self):
         super().clean()
         self.email = self.__class__.objects.normalize_email(self.email)
+        self.username = normalize_username(self.username)
 
     def name_or_email(self):
         name = self.get_full_name()

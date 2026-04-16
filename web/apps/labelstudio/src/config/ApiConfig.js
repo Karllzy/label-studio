@@ -10,9 +10,17 @@ export const API_CONFIG = {
     hotkeys: "GET:/current-user/hotkeys/",
     updateHotkeys: "PATCH:/current-user/hotkeys/",
 
+    // Admin user management (system admin only)
+    adminUsers: "/admin/users/",
+    adminUser: "/admin/users/:pk/",
+    adminCreateUser: "POST:/admin/users/",
+    adminUpdateUser: "PATCH:/admin/users/:pk/",
+    adminDeleteUser: "DELETE:/admin/users/:pk/",
+
     // Organization
     memberships: "/organizations/:pk/memberships",
     userMemberships: "/organizations/:pk/memberships/:userPk",
+    updateMemberRole: "PATCH:/organizations/:pk/memberships/:userPk",
     inviteLink: "/invite",
     resetInviteLink: "POST:/invite/reset-token",
 
@@ -23,6 +31,20 @@ export const API_CONFIG = {
     createProject: "POST:/projects",
     deleteProject: "DELETE:/projects/:pk",
     projectResetCache: "POST:/projects/:pk/summary/reset",
+
+    // Project members management
+    projectMembers: "/projects/:pk/members/",
+    projectMemberDetail: "/projects/:pk/members/:memberPk/",
+    addProjectMember: "POST:/projects/:pk/members/",
+    updateProjectMember: "PATCH:/projects/:pk/members/:memberPk/",
+    removeProjectMember: "DELETE:/projects/:pk/members/:memberPk/",
+    // Project workflow settings
+    projectWorkflow: "/projects/:pk/workflow/",
+    updateProjectWorkflow: "PATCH:/projects/:pk/workflow/",
+
+    // Annotation review
+    reviewAnnotation: "POST:/../annotations/:pk/review/",
+    assignTasks: "POST:/projects/:pk/assign-tasks/",
 
     // Presigning
     presignUrlForTask: "/../tasks/:taskID/presign",
@@ -35,7 +57,12 @@ export const API_CONFIG = {
     fileUploads: "/projects/:pk/file-uploads",
     deleteFileUploads: "DELETE:/projects/:pk/file-uploads",
     importFiles: "POST:/projects/:pk/import",
+    importFromLocalPaths: "POST:/projects/:pk/import/local-files",
     reimportFiles: "POST:/projects/:pk/reimport",
+    // Chunked upload
+    chunkedUploadInit: "POST:/projects/:pk/import/chunked/init",
+    chunkedUploadPart: "POST:/projects/:pk/import/chunked/upload",
+    chunkedUploadComplete: "POST:/projects/:pk/import/chunked/complete",
     dataSummary: "/projects/:pk/summary",
 
     // DM
@@ -69,6 +96,14 @@ export const API_CONFIG = {
     export: "/projects/:pk/export",
     previousExports: "/projects/:pk/export/files",
     exportFormats: "/projects/:pk/export/formats",
+    // Packaged export (export to folder + zip download)
+    packagedExports: "/projects/:pk/exports/packages/",
+    createPackagedExport: "POST:/projects/:pk/exports/packages/",
+    packagedExportDetail: "/projects/:pk/exports/packages/:exportPk",
+    deletePackagedExport: "DELETE:/projects/:pk/exports/packages/:exportPk",
+    downloadPackagedExport: "/projects/:pk/exports/packages/:exportPk/download",
+    // Local files browse
+    browseLocalFiles: "/storages/localfiles/browse",
 
     // Version
     version: "/version",

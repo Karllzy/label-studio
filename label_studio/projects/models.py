@@ -317,6 +317,38 @@ class Project(ProjectMixin, FsmHistoryStateModel):
         max_length=100, choices=SkipQueue.choices, null=True, default=SkipQueue.REQUEUE_FOR_OTHERS
     )
 
+    class TaskAssignmentMode(models.TextChoices):
+        MANUAL = 'manual', 'Manual assignment'
+        AUTO_ROUND_ROBIN = 'auto_round_robin', 'Auto round-robin'
+        SELF_PICK = 'self_pick', 'Self pick from pool'
+
+    class RejectFlowMode(models.TextChoices):
+        BACK_TO_SAME = 'back_to_same', 'Back to same annotator'
+        BACK_TO_POOL = 'back_to_pool', 'Back to task pool'
+
+    task_assignment_mode = models.CharField(
+        _('task assignment mode'), max_length=20, choices=TaskAssignmentMode.choices,
+        default=TaskAssignmentMode.SELF_PICK,
+        help_text='How tasks are assigned to annotators',
+    )
+    reject_flow_mode = models.CharField(
+        _('reject flow mode'), max_length=20, choices=RejectFlowMode.choices,
+        default=RejectFlowMode.BACK_TO_SAME,
+        help_text='Where rejected annotations go',
+    )
+    require_review = models.BooleanField(
+        _('require review'), default=False,
+        help_text='Whether annotations require reviewer approval before being marked complete',
+    )
+    hide_completed_for_annotators = models.BooleanField(
+        _('hide completed for annotators'), default=False,
+        help_text='Hide completed tasks from annotators in the task list',
+    )
+    hide_annotations_for_annotators = models.BooleanField(
+        _('hide annotations for annotators'), default=False,
+        help_text='Hide other annotators results from annotators',
+    )
+
     # Deprecated in favor of annotator_evaluation_enabled
     show_ground_truth_first = models.BooleanField(
         _('show ground truth first'),
@@ -1394,10 +1426,24 @@ class LabelStreamHistory(models.Model):
 
 
 class ProjectMember(models.Model):
+    PROJECT_ROLE_ADMIN = 'AD'
+    PROJECT_ROLE_ANNOTATOR = 'AN'
+    PROJECT_ROLE_REVIEWER = 'RE'
+
+    PROJECT_ROLE_CHOICES = [
+        (PROJECT_ROLE_ADMIN, 'Admin'),
+        (PROJECT_ROLE_ANNOTATOR, 'Annotator'),
+        (PROJECT_ROLE_REVIEWER, 'Reviewer'),
+    ]
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='project_memberships', help_text='User ID'
     )
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='members', help_text='Project ID')
+    role = models.CharField(
+        _('role'), max_length=2, choices=PROJECT_ROLE_CHOICES, default=PROJECT_ROLE_ANNOTATOR,
+        help_text='Role of the user in the project',
+    )
     enabled = models.BooleanField(default=True, help_text='Project member is enabled')
     created_at = models.DateTimeField(_('created at'), auto_now_add=True)
     updated_at = models.DateTimeField(_('updated at'), auto_now=True)

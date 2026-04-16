@@ -28,7 +28,7 @@ const ProjectName = ({ name, setName, onSaveName, onSubmit, error, description, 
     >
       <div className="w-full flex flex-col gap-2">
         <label className="w-full" htmlFor="project_name">
-          Project Name
+          项目名称
         </label>
         <Input
           name="name"
@@ -42,12 +42,12 @@ const ProjectName = ({ name, setName, onSaveName, onSubmit, error, description, 
       </div>
       <div className="w-full flex flex-col gap-2">
         <label className="w-full" htmlFor="project_description">
-          Description
+          描述
         </label>
         <TextArea
           name="description"
           id="project_description"
-          placeholder="Optional description of your project"
+          placeholder="项目描述（可选）"
           rows="4"
           style={{ minHeight: 100 }}
           value={description}
@@ -117,9 +117,9 @@ export const CreateProject = ({ onClose }) => {
   const rootClass = cn("create-project");
   const tabClass = rootClass.elem("tab");
   const steps = {
-    name: <span className={tabClass.mod({ disabled: !!error }).toClassName()}>Project Name</span>,
-    import: <span className={tabClass.mod({ disabled: uploadDisabled }).toClassName()}>Data Import</span>,
-    config: "Labeling Setup",
+    name: <span className={tabClass.mod({ disabled: !!error }).toClassName()}>项目名称</span>,
+    import: <span className={tabClass.mod({ disabled: uploadDisabled }).toClassName()}>数据导入</span>,
+    config: "标注配置",
   };
 
   // name intentionally skipped from deps:
@@ -200,7 +200,7 @@ export const CreateProject = ({ onClose }) => {
     <Modal onHide={onDelete} closeOnClickOutside={false} allowToInterceptEscape fullscreen visible bare>
       <div className={rootClass}>
         <Modal.Header>
-          <h1>Create Project</h1>
+          <h1>创建项目</h1>
           <ToggleItems items={steps} active={step} onSelect={setStep} />
 
           <Space>
@@ -209,9 +209,9 @@ export const CreateProject = ({ onClose }) => {
               look="outlined"
               onClick={onDelete}
               waiting={waiting}
-              aria-label="Cancel project creation"
+              aria-label="取消创建项目"
             >
-              Cancel
+              取消
             </Button>
             <Button
               look="primary"
@@ -220,7 +220,7 @@ export const CreateProject = ({ onClose }) => {
               waitingClickable={false}
               disabled={!project || uploadDisabled || error}
             >
-              Save
+              保存
             </Button>
           </Space>
         </Modal.Header>

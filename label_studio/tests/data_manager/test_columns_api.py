@@ -73,3 +73,25 @@ def test_columns_api_annotates_config_defined_columns_with_project_defined_true(
     for c in columns:
         assert 'project_defined' in c
         assert c['project_defined'] == (c['id'] == 'text')
+
+
+def test_columns_api_limits_default_labeling_columns_to_inner_id_and_media_fields(business_client):
+    config_with_image_and_text = """
+        <View>
+            <Image value="$image" name="image" />
+            <Text value="$text" name="text" />
+            <Choices name="choices" toName="text">
+                <Choice value="ok"/>
+            </Choices>
+        </View>
+        """
+
+    columns = _get_columns(business_client, config_with_image_and_text)
+    visibility = {c['id']: c.get('visibility_defaults', {}) for c in columns}
+
+    assert visibility['inner_id']['labeling'] is True
+    assert visibility['image']['labeling'] is True
+    assert visibility['text']['labeling'] is False
+    assert visibility['completed_at']['labeling'] is False
+    assert visibility['total_annotations']['labeling'] is False
+    assert visibility['annotators']['labeling'] is False

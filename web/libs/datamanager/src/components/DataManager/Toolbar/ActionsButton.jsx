@@ -233,7 +233,7 @@ export const ActionsButton = injector(
     const actionButtons = actions.map((action) => (
       <ActionButton key={action.id} action={action} parentRef={formRef} store={store} formRef={formRef} />
     ));
-    const recordTypeLabel = isFFLOPSE3 && store.SDK.type === "DE" ? "Record" : "Task";
+    const recordTypeLabel = isFFLOPSE3 && store.SDK.type === "DE" ? "记录" : "任务";
 
     return (
       <Dropdown.Trigger
@@ -241,7 +241,7 @@ export const ActionsButton = injector(
           <Menu size="compact">
             {isLoading || isFetching ? (
               <Menu.Item data-testid="loading-actions" disabled>
-                Loading actions...
+                加载操作…
               </Menu.Item>
             ) : (
               actionButtons
@@ -261,7 +261,7 @@ export const ActionsButton = injector(
           aria-label="Tasks Actions"
           {...rest}
         >
-          {selectedCount > 0 ? `${selectedCount} ${recordTypeLabel}${selectedCount > 1 ? "s" : ""}` : "Actions"}
+          {selectedCount > 0 ? `${selectedCount} ${recordTypeLabel}` : "操作"}
         </Button>
       </Dropdown.Trigger>
     );

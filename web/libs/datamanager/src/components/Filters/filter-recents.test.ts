@@ -2,7 +2,12 @@ import { getRecentFilterFields, addRecentFilterField, updateRecentFilterField } 
 
 describe("filter-recents", () => {
   const projectId = 42;
-  const storageKey = `dm:recentFilterFields:${projectId}`;
+  const testUserId = 9001;
+  const storageKey = `dm:recentFilterFields:${projectId}:u${testUserId}`;
+
+  beforeAll(() => {
+    (window as unknown as { APP_SETTINGS: { user: { id: number } } }).APP_SETTINGS = { user: { id: testUserId } };
+  });
 
   beforeEach(() => {
     localStorage.clear();

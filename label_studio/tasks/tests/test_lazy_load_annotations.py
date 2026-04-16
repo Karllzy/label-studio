@@ -69,6 +69,7 @@ class TestAnnotationStubSerializer(APITestCase):
             'completed_by',
             'ground_truth',  # needed for star indicator in UI
             'was_cancelled',  # needed for skip queue / cancel-skip button display
+            'review_status',  # pending review UI in data manager without full annotation payload
             'is_stub',
         ]
 

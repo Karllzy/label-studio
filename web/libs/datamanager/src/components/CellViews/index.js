@@ -19,6 +19,7 @@ export { VideoCell as Video } from "./VideoCell";
 export { ProjectCell as Project } from "./ProjectCell";
 export { AgreementSelected } from "./AgreementSelected";
 export { TaskState } from "./TaskState";
+export { PredictionsScoreCell as PredictionsScore } from "./PredictionsScoreCell";
 
 export function normalizeCellAlias(alias) {
   // remove trailing separators to make `pascalCase` safe

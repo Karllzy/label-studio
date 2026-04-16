@@ -21,11 +21,16 @@ get_user_repr_from_organization = load_func(settings.FEATURE_FLAGS_GET_USER_REPR
 
 
 def get_feature_file_path():
-    package_name = 'label_studio' if settings.VERSION_EDITION == 'Community' else 'label_studio_enterprise'
     if settings.FEATURE_FLAGS_FILE.startswith('/'):
         return settings.FEATURE_FLAGS_FILE
-    else:
-        return find_node(package_name, settings.FEATURE_FLAGS_FILE, 'file')
+    package_name = 'label_studio'
+    if settings.VERSION_EDITION != 'Community':
+        try:
+            import label_studio_enterprise  # noqa: F401
+            package_name = 'label_studio_enterprise'
+        except ImportError:
+            pass
+    return find_node(package_name, settings.FEATURE_FLAGS_FILE, 'file')
 
 
 if settings.FEATURE_FLAGS_FROM_FILE:

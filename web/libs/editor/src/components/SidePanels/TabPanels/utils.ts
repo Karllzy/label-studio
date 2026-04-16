@@ -176,32 +176,32 @@ export const panelComponents: { [key: string]: FC<PanelProps> } = {
 const panelViews = [
   {
     name: "regions",
-    title: "Regions",
+    title: "区域",
     component: panelComponents.regions as FC<PanelProps>,
     active: true,
   },
   {
     name: "history",
-    title: "History",
+    title: "历史",
     component: panelComponents.history as FC<PanelProps>,
     active: false,
   },
 
   {
     name: "relations",
-    title: "Relations",
+    title: "关系",
     component: panelComponents.relations as FC<PanelProps>,
     active: false,
   },
   {
     name: "info",
-    title: "Info",
+    title: "信息",
     component: panelComponents.info as FC<PanelProps>,
     active: true,
   },
   {
     name: "comments",
-    title: "Comments",
+    title: "评论",
     component: panelComponents.comments as FC<PanelProps>,
     active: false,
   },

@@ -4,8 +4,8 @@ import { IconCloudProviderS3 } from "@humansignal/icons";
 
 export const s3Provider: ProviderConfig = {
   name: "s3",
-  title: "Amazon S3",
-  description: "Configure your AWS S3 connection with all required Label Studio settings",
+  title: "S3 / MinIO",
+  description: "Connect to S3-compatible storage (AWS S3, MinIO, or other S3-compatible services)",
   icon: IconCloudProviderS3,
   fields: [
     {
@@ -27,7 +27,7 @@ export const s3Provider: ProviderConfig = {
       name: "s3_endpoint",
       type: "text",
       label: "S3 Endpoint",
-      placeholder: "https://s3.amazonaws.com (default)",
+      placeholder: "http://minio:9000 or https://s3.amazonaws.com",
       schema: z.string().optional().default(""),
     },
     {

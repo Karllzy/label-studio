@@ -12,8 +12,8 @@
   position: sticky;
   display: flex;
   box-sizing: border-box;
-  background-color: var(--color-neutral-background);
-  border-bottom: 1px solid var(--color-neutral-border);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-bottom: none;
   transition: background-color 400ms ease-out;
 
   &__spacer {
@@ -49,15 +49,22 @@
 
   &__hotkeys-button {
     & button {
+      background: transparent;
+      border-color: rgba(255, 255, 255, 0.3);
+      color: rgba(255, 255, 255, 0.85);
+
       & svg {
         width: 20px;
         height: 20px;
-        color: var(--color-neutral-content-subtler);
+        color: rgba(255, 255, 255, 0.85);
       }
 
       &:hover {
+        background: rgba(255, 255, 255, 0.15);
+        border-color: rgba(255, 255, 255, 0.5);
+
         & svg {
-          color: var(--color-neutral-icon);
+          color: #ffffff;
         }
       }
     }
@@ -72,18 +79,45 @@
     min-width: 240px;
     max-width: 240px;
     box-sizing: border-box;
-    border-right: 1px solid var(--color-neutral-border);
+    border-right: 1px solid rgba(255, 255, 255, 0.2);
     transition: all 150ms ease-out;
 
     &:hover {
-      background-color: var(--color-neutral-emphasis-subtle);
+      background-color: rgba(255, 255, 255, 0.1);
     }
   }
 
   &__logo {
-    color: var(--color-neutral-content);
-    height: 22px;
-    width: 142px;
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+
+  &__theme-toggle {
+    display: flex;
+    align-items: center;
+    margin-right: var(--spacing-tight);
+
+    & button {
+      background: transparent;
+      border-color: rgba(255, 255, 255, 0.3);
+      color: rgba(255, 255, 255, 0.85);
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.15);
+        border-color: rgba(255, 255, 255, 0.5);
+      }
+
+      & span {
+        color: rgba(255, 255, 255, 0.85);
+      }
+
+      & svg {
+        color: rgba(255, 255, 255, 0.85);
+      }
+    }
   }
 
   &__user {

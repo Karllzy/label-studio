@@ -270,16 +270,17 @@ class OrganizationMemberListAPI(generics.ListAPIView):
 class OrganizationMemberDetailAPI(GetParentObjectMixin, generics.RetrieveDestroyAPIView):
     permission_required = ViewClassPermission(
         GET=all_permissions.organizations_view,
+        PATCH=all_permissions.organizations_change,
         DELETE=all_permissions.organizations_change,
     )
     parent_queryset = Organization.objects.all()
     parser_classes = (JSONParser, FormParser, MultiPartParser)
     serializer_class = OrganizationMemberSerializer
-    http_method_names = ['delete', 'get']
+    http_method_names = ['delete', 'get', 'patch']
 
     @property
     def permission_classes(self):
-        if self.request.method == 'DELETE':
+        if self.request.method in ('DELETE', 'PATCH'):
             return [IsAuthenticated, HasObjectPermission]
         return api_settings.DEFAULT_PERMISSION_CLASSES
 
@@ -300,6 +301,18 @@ class OrganizationMemberDetailAPI(GetParentObjectMixin, generics.RetrieveDestroy
         serializer = self.get_serializer(member)
         return Response(serializer.data)
 
+    def patch(self, request, pk=None, user_pk=None):
+        """Update organization member role."""
+        org = self.parent_object
+        user = get_object_or_404(User, pk=user_pk)
+        member = get_object_or_404(OrganizationMember, user=user, organization=org, deleted_at__isnull=True)
+        new_role = request.data.get('role')
+        if new_role and new_role in dict(OrganizationMember.ORG_ROLE_CHOICES):
+            member.role = new_role
+            member.save(update_fields=['role'])
+        serializer = self.get_serializer(member)
+        return Response(serializer.data)
+
     def delete(self, request, pk=None, user_pk=None):
         org = self.parent_object
         if org != request.user.active_organization:
@@ -314,7 +327,7 @@ class OrganizationMemberDetailAPI(GetParentObjectMixin, generics.RetrieveDestroy
             return Response({'detail': 'User cannot soft delete self'}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
         member.soft_delete()
-        return Response(status=204)  # 204 No Content is a common HTTP status for successful delete requests
+        return Response(status=204)
 
 
 @method_decorator(

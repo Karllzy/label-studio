@@ -1,19 +1,15 @@
 import { createContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StaticContent } from "../../app/StaticContent/StaticContent";
 import {
-  IconBook,
   IconFolder,
   IconHome,
   IconHotkeys,
   IconPeople,
   IconPersonInCircle,
   IconPin,
-  IconTerminal,
   IconDoor,
-  IconGithub,
-  IconSlack,
+  IconSettings,
 } from "@humansignal/icons";
-import { LSLogo } from "../../assets/images";
 import { Button, Userpic, ThemeToggle } from "@humansignal/ui";
 import { useConfig } from "../../providers/ConfigProvider";
 import { useContextComponent, useFixedLocation } from "../../providers/RoutesProvider";
@@ -24,7 +20,6 @@ import { Breadcrumbs } from "../Breadcrumbs/Breadcrumbs";
 import { Dropdown } from "@humansignal/ui";
 import { Hamburger } from "../Hamburger/Hamburger";
 import { Menu } from "../Menu/Menu";
-import { VersionNotifier, VersionProvider } from "../VersionNotifier/VersionNotifier";
 import "./Menubar.prefix.css";
 import "./MenuContent.prefix.css";
 import "./MenuSidebar.prefix.css";
@@ -139,7 +134,7 @@ export const Menubar = ({ enabled, defaultOpened, defaultPinned, children, onSid
         <div className={menubarClass}>
           <Dropdown.Trigger dropdown={menuDropdownRef} closeOnClickOutside={!sidebarPinned}>
             <div className={`${menubarClass.elem("trigger")} main-menu-trigger`}>
-              <LSLogo className={`${menubarClass.elem("logo")}`} alt="Label Studio Logo" />
+              <span className={`${menubarClass.elem("logo")}`}>数据平台</span>
               <Hamburger opened={sidebarOpened} />
             </div>
           </Dropdown.Trigger>
@@ -154,7 +149,7 @@ export const Menubar = ({ enabled, defaultOpened, defaultPinned, children, onSid
               <Button
                 variant="neutral"
                 look="outlined"
-                tooltip="Keyboard Shortcuts"
+                tooltip="快捷键"
                 data-testid="hotkeys-button"
                 size="small"
                 onClick={() => {
@@ -174,7 +169,11 @@ export const Menubar = ({ enabled, defaultOpened, defaultPinned, children, onSid
             </div>
           </div>
 
-          {ff.isActive(ff.FF_THEME_TOGGLE) && <ThemeToggle />}
+          {ff.isActive(ff.FF_THEME_TOGGLE) && (
+            <div className={menubarClass.elem("theme-toggle").toClassName()}>
+              <ThemeToggle />
+            </div>
+          )}
 
           <Dropdown.Trigger
             ref={useMenuRef}
@@ -183,11 +182,11 @@ export const Menubar = ({ enabled, defaultOpened, defaultPinned, children, onSid
               <Menu>
                 <Menu.Item
                   icon={<IconPersonInCircle />}
-                  label="Account &amp; Settings"
+                  label="账户与设置"
                   href={pages.AccountSettingsPage.path}
                 />
                 {/* <Menu.Item label="Dark Mode"/> */}
-                <Menu.Item icon={<IconDoor />} label="Log Out" href={absoluteURL("/logout")} data-external />
+                <Menu.Item icon={<IconDoor />} label="退出登录" href={absoluteURL("/logout")} data-external />
                 {showNewsletterDot && (
                   <>
                     <Menu.Divider />
@@ -195,7 +194,7 @@ export const Menubar = ({ enabled, defaultOpened, defaultPinned, children, onSid
                       className={cn("newsletter-menu-item").toClassName()}
                       href={pages.AccountSettingsPage.path}
                     >
-                      <span>Please check new notification settings in the Account & Settings page</span>
+                      <span>请在"账户与设置"页面中查看通知设置</span>
                       <span className={cn("newsletter-menu-badge").toClassName()} />
                     </Menu.Item>
                   </>
@@ -211,7 +210,6 @@ export const Menubar = ({ enabled, defaultOpened, defaultPinned, children, onSid
         </div>
       )}
 
-      <VersionProvider>
         <div className={contentClass.elem("body").toClassName()}>
           {enabled && (
             <Dropdown
@@ -223,37 +221,15 @@ export const Menubar = ({ enabled, defaultOpened, defaultPinned, children, onSid
               style={{ width: 240 }}
             >
               <Menu>
-                {isFF(FF_HOMEPAGE) && <Menu.Item label="Home" to="/" icon={<IconHome />} data-external exact />}
-                <Menu.Item label="Projects" to="/projects" icon={<IconFolder />} data-external exact />
-                <Menu.Item label="Organization" to="/organization" icon={<IconPeople />} data-external exact />
+                {isFF(FF_HOMEPAGE) && <Menu.Item label="首页" to="/" icon={<IconHome />} data-external exact />}
+                <Menu.Item label="项目" to="/projects" icon={<IconFolder />} data-external exact />
+                <Menu.Item label="组织" to="/organization" icon={<IconPeople />} data-external exact />
+
+                {window.APP_SETTINGS?.user?.is_superuser && (
+                  <Menu.Item label="用户管理" to="/admin/users" icon={<IconSettings />} data-external exact />
+                )}
 
                 <Menu.Spacer />
-
-                <VersionNotifier showNewVersion />
-
-                <Menu.Item
-                  label="API"
-                  href="https://api.labelstud.io/api-reference/introduction/getting-started"
-                  icon={<IconTerminal />}
-                  target="_blank"
-                />
-                <Menu.Item label="Docs" href="https://labelstud.io/guide" icon={<IconBook />} target="_blank" />
-                <Menu.Item
-                  label="GitHub"
-                  href="https://github.com/HumanSignal/label-studio"
-                  icon={<IconGithub />}
-                  target="_blank"
-                  rel="noreferrer"
-                />
-                <Menu.Item
-                  label="Slack Community"
-                  href="https://slack.labelstud.io/?source=product-menu"
-                  icon={<IconSlack />}
-                  target="_blank"
-                  rel="noreferrer"
-                />
-
-                <VersionNotifier showCurrentVersion />
 
                 <Menu.Divider />
 
@@ -263,7 +239,7 @@ export const Menubar = ({ enabled, defaultOpened, defaultPinned, children, onSid
                   onClick={sidebarPin}
                   active={sidebarPinned}
                 >
-                  {sidebarPinned ? "Unpin menu" : "Pin menu"}
+                  {sidebarPinned ? "取消固定" : "固定菜单"}
                 </Menu.Item>
               </Menu>
             </Dropdown>
@@ -280,7 +256,6 @@ export const Menubar = ({ enabled, defaultOpened, defaultPinned, children, onSid
             </div>
           </MenubarContext.Provider>
         </div>
-      </VersionProvider>
     </div>
   );
 };

@@ -1,0 +1,106 @@
+.admin-users {
+    padding: 30px 40px;
+    max-width: 1200px;
+    margin: 0 auto;
+
+    &__header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+
+        & h1 {
+            font-size: 22px;
+            font-weight: 600;
+            margin: 0;
+        }
+    }
+
+    &__table-wrapper {
+        background: var(--sand_0);
+        border: 1px solid var(--sand_300);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    &__table {
+        width: 100%;
+        border-collapse: collapse;
+
+        & th {
+            text-align: left;
+            padding: 12px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--sand_600);
+            background: var(--sand_100);
+            border-bottom: 1px solid var(--sand_300);
+        }
+
+        & td {
+            padding: 12px 16px;
+            font-size: 14px;
+            border-bottom: 1px solid var(--sand_200);
+        }
+
+        & tbody tr:hover {
+            background: var(--sand_100);
+        }
+    }
+
+    &__inactive {
+        opacity: 0.5;
+    }
+
+    &__row-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    &__create-form {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 16px 0;
+    }
+
+    &__field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+
+        & label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--sand_600);
+        }
+
+        & input {
+            padding: 8px 12px;
+            border: 1px solid var(--sand_300);
+            border-radius: 4px;
+            font-size: 14px;
+
+            &:focus {
+                outline: none;
+                border-color: var(--primary);
+                box-shadow: 0 0 0 2px rgba(var(--primary-rgb, 56, 111, 244), 0.15);
+            }
+        }
+    }
+
+    &__actions {
+        display: flex;
+        justify-content: flex-end;
+        padding-top: 8px;
+    }
+
+    &__error {
+        padding: 10px 14px;
+        background: #FFF0F0;
+        border: 1px solid #FFCCCC;
+        border-radius: 4px;
+        color: #CC0000;
+        font-size: 13px;
+    }
+}

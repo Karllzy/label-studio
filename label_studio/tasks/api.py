@@ -9,7 +9,7 @@ from core.utils.common import is_community
 from core.utils.params import bool_from_request
 from data_manager.api import TaskListAPI as DMTaskListAPI
 from data_manager.functions import evaluate_predictions
-from data_manager.models import PrepareParams
+from data_manager.prepare_params import PrepareParams, SelectedItems
 from data_manager.serializers import DataManagerTaskSerializer
 from django.db import transaction
 from django.db.models import Q
@@ -23,8 +23,11 @@ from projects.models import Project
 from rest_framework import generics, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from tasks.models import Annotation, AnnotationDraft, Prediction, Task
+from tasks.models import Annotation, AnnotationDraft, Prediction, Task, TaskAssignment
+from tasks.review_permissions import initial_review_status_for_annotation
+from tasks.pending_review_sync import refresh_task_pending_review_flags
 from tasks.openapi_schema import (
     annotation_request_schema,
     annotation_response_example,
@@ -288,6 +291,11 @@ class TaskAPI(generics.RetrieveUpdateDestroyAPIView):
         super().initial(request, *args, **kwargs)
         self.task = self.get_object()
 
+    def perform_destroy(self, instance):
+        if not self.request.user.has_perm(all_permissions.tasks_delete, instance):
+            self.permission_denied(self.request, message='You do not have permission to delete tasks.')
+        super().perform_destroy(instance)
+
     def prefetch(self, queryset):
         return queryset.prefetch_related(
             'annotations',
@@ -352,10 +360,10 @@ class TaskAPI(generics.RetrieveUpdateDestroyAPIView):
         return ['annotations_results', 'predictions_results']
 
     def get_queryset(self):
-        task_id = self.request.parser_context['kwargs'].get('pk')
+        task_id = int(self.request.parser_context['kwargs'].get('pk'))
         task = generics.get_object_or_404(Task, pk=task_id)
         review = bool_from_request(self.request.GET, 'review', False)
-        selected = {'all': False, 'included': [self.kwargs.get('pk')]}
+        selected = SelectedItems(all=False, included=[task_id])
         if review:
             kwargs = {'fields_for_evaluation': ['annotators', 'reviewed']}
         else:
@@ -368,7 +376,8 @@ class TaskAPI(generics.RetrieveUpdateDestroyAPIView):
             project = task.project.id
         return self.prefetch(
             Task.prepared.get_queryset(
-                prepare_params=PrepareParams(project=project, selectedItems=selected, request=self.request), **kwargs
+                prepare_params=PrepareParams(project=int(project), selectedItems=selected, request=self.request),
+                **kwargs,
             )
         )
 
@@ -391,6 +400,13 @@ class TaskAPI(generics.RetrieveUpdateDestroyAPIView):
 
         # Now fetch full task with heavy queryset (prefetches, annotations, etc.)
         queryset = self.filter_queryset(self.get_queryset())
+        obj = queryset.filter(pk=task_id).first()
+        if obj is not None:
+            return obj
+
+        # Prepared DM queryset can occasionally exclude a task (filters/annotations edge cases)
+        # while the user is still allowed to see it (e.g. reviewer deep link). Fall back to a direct fetch.
+        queryset = self.prefetch(Task.objects.filter(pk=task_id, project_id=lean_task.project_id))
         return generics.get_object_or_404(queryset, pk=task_id)
 
     def get_serializer_class(self):
@@ -832,7 +848,20 @@ class AnnotationsListAPI(GetParentObjectMixin, generics.ListCreateAPIView):
 
         # create annotation
         logger.debug(f'User={self.request.user}: save annotation')
+
+        if task.project.require_review and not extra_args.get('was_cancelled', False):
+            review_status = initial_review_status_for_annotation(task.project, user)
+            if review_status is not None:
+                extra_args['review_status'] = review_status
+
         annotation = ser.save(**extra_args)
+
+        # Update task assignment status to submitted
+        if task.project.require_review and not extra_args.get('was_cancelled', False):
+            TaskAssignment.objects.filter(
+                task=task, annotator=self.request.user,
+                status__in=[TaskAssignment.Status.ASSIGNED, TaskAssignment.Status.IN_PROGRESS],
+            ).update(status=TaskAssignment.Status.SUBMITTED)
 
         logger.debug(f'Save activity for user={self.request.user}')
         self.request.user.activity_at = timezone.now()
@@ -1101,3 +1130,184 @@ class AnnotationConvertAPI(generics.RetrieveAPIView):
         emit_webhooks_for_instance(organization, project, WebhookAction.ANNOTATIONS_DELETED, [pk])
         data = AnnotationDraftSerializer(instance=draft).data
         return Response(status=201, data=data)
+
+
+class AnnotationReviewAPI(generics.GenericAPIView):
+    """Review an annotation: approve or reject.
+    POST /api/annotations/<pk>/review/
+    Body: { "action": "approve"|"reject", "comment": "..." }
+    """
+    permission_required = ViewClassPermission(POST=all_permissions.annotations_review)
+    queryset = Annotation.objects.all()
+    parser_classes = (JSONParser,)
+
+    def post(self, request, *args, **kwargs):
+        annotation = self.get_object()
+        project = annotation.project
+
+        if not request.user.has_perm(all_permissions.annotations_review, project):
+            raise PermissionDenied('You do not have permission to review annotations.')
+
+        if not project.require_review:
+            return Response({'detail': 'Review is not enabled for this project.'}, status=400)
+
+        action = request.data.get('action')
+        comment = request.data.get('comment', '')
+
+        if action not in ('approve', 'reject'):
+            raise ValidationError('action must be "approve" or "reject"')
+
+        annotation.reviewed_by = request.user
+        annotation.reviewed_at = timezone.now()
+        annotation.review_comment = comment
+
+        if action == 'approve':
+            annotation.review_status = Annotation.ReviewStatus.APPROVED
+            annotation.ground_truth = True
+            annotation.save(update_fields=['review_status', 'reviewed_by', 'reviewed_at', 'review_comment', 'ground_truth'])
+            # Reviewer-approved annotation becomes the adopted final result for this task.
+            annotation.task.ensure_unique_groundtruth(annotation.id)
+        else:
+            annotation.review_status = Annotation.ReviewStatus.REJECTED
+            update_fields = ['review_status', 'reviewed_by', 'reviewed_at', 'review_comment']
+            if annotation.ground_truth:
+                annotation.ground_truth = False
+                update_fields.append('ground_truth')
+            annotation.save(update_fields=update_fields)
+            if project.reject_flow_mode == 'back_to_pool':
+                TaskAssignment.objects.filter(
+                    task=annotation.task,
+                    annotator=annotation.completed_by,
+                    status=TaskAssignment.Status.SUBMITTED,
+                ).update(status=TaskAssignment.Status.REASSIGNED)
+            else:
+                TaskAssignment.objects.filter(
+                    task=annotation.task,
+                    annotator=annotation.completed_by,
+                    status=TaskAssignment.Status.SUBMITTED,
+                ).update(status=TaskAssignment.Status.ASSIGNED)
+
+        # Keep denormalized task flag in sync immediately for DM filters like "pending review".
+        refresh_task_pending_review_flags(annotation.task_id)
+
+        return Response({
+            'id': annotation.id,
+            'review_status': annotation.review_status,
+            'reviewed_by': annotation.reviewed_by_id,
+            'reviewed_at': annotation.reviewed_at.isoformat() if annotation.reviewed_at else None,
+            'review_comment': annotation.review_comment,
+        })
+
+
+class PendingReviewListAPI(generics.ListAPIView):
+    """List annotations pending review for a project.
+    GET /api/projects/<pk>/pending-reviews/
+    """
+    permission_required = ViewClassPermission(GET=all_permissions.annotations_review)
+    parser_classes = (JSONParser,)
+
+    def get_queryset(self):
+        project_id = self.kwargs['pk']
+        return Annotation.objects.filter(
+            project_id=project_id,
+            review_status=Annotation.ReviewStatus.PENDING,
+        ).select_related('task', 'completed_by').order_by('created_at')
+
+    def list(self, request, *args, **kwargs):
+        project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=self.kwargs['pk'])
+        if not request.user.has_perm(all_permissions.annotations_review, project):
+            raise PermissionDenied('You do not have permission to view the review queue.')
+        queryset = self.get_queryset()
+        data = []
+        for ann in queryset[:200]:
+            data.append({
+                'id': ann.id,
+                'task_id': ann.task_id,
+                'completed_by': {
+                    'id': ann.completed_by_id,
+                    'email': ann.completed_by.email if ann.completed_by else None,
+                },
+                'created_at': ann.created_at.isoformat(),
+                'result_count': ann.result_count,
+            })
+        return Response(data)
+
+
+class TaskAssignmentAPI(generics.GenericAPIView):
+    """Assign tasks to annotators or let them self-pick.
+    POST /api/projects/<pk>/assign-tasks/
+    Body: { "task_ids": [1, 2, 3], "annotator_id": 5 }  (for manual mode)
+    or POST without body (for self-pick: assigns next available task to requester)
+    """
+
+    permission_classes = (IsAuthenticated,)
+    parser_classes = (JSONParser,)
+
+    def post(self, request, *args, **kwargs):
+        project_id = self.kwargs['pk']
+        project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=project_id)
+
+        task_ids = request.data.get('task_ids', [])
+        annotator_id = request.data.get('annotator_id')
+
+        if project.task_assignment_mode == 'manual':
+            if not request.user.has_perm(all_permissions.tasks_assign, project):
+                raise PermissionDenied('You do not have permission to assign tasks.')
+            if not task_ids or not annotator_id:
+                return Response({'detail': 'task_ids and annotator_id required for manual mode'}, status=400)
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            annotator = User.objects.get(pk=annotator_id)
+            created = []
+            for tid in task_ids:
+                assignment, _ = TaskAssignment.objects.update_or_create(
+                    task_id=tid, annotator=annotator,
+                    defaults={'assigned_by': request.user, 'status': TaskAssignment.Status.ASSIGNED},
+                )
+                created.append({'task_id': tid, 'annotator_id': annotator_id, 'id': assignment.id})
+            return Response({'assignments': created}, status=201)
+
+        elif project.task_assignment_mode == 'auto_round_robin':
+            if not request.user.has_perm(all_permissions.tasks_assign, project):
+                raise PermissionDenied('You do not have permission to assign tasks.')
+            from projects.models import ProjectMember
+            annotators = ProjectMember.objects.filter(
+                project=project, role='AN', enabled=True,
+            ).values_list('user_id', flat=True)
+            if not annotators:
+                return Response({'detail': 'No annotators in this project'}, status=400)
+            annotator_list = list(annotators)
+            unassigned_tasks = Task.objects.filter(
+                project=project,
+            ).exclude(
+                assignments__status__in=[TaskAssignment.Status.ASSIGNED, TaskAssignment.Status.IN_PROGRESS],
+            ).order_by('id')[:100]
+            created = []
+            for i, task in enumerate(unassigned_tasks):
+                ann_id = annotator_list[i % len(annotator_list)]
+                assignment, _ = TaskAssignment.objects.update_or_create(
+                    task=task, annotator_id=ann_id,
+                    defaults={'assigned_by': request.user, 'status': TaskAssignment.Status.ASSIGNED},
+                )
+                created.append({'task_id': task.id, 'annotator_id': ann_id, 'id': assignment.id})
+            return Response({'assignments': created, 'count': len(created)}, status=201)
+
+        else:
+            task = Task.objects.filter(
+                project=project,
+            ).exclude(
+                assignments__annotator=request.user,
+                assignments__status__in=[TaskAssignment.Status.ASSIGNED, TaskAssignment.Status.IN_PROGRESS],
+            ).exclude(
+                is_labeled=True,
+            ).order_by('id').first()
+            if not task:
+                return Response({'detail': 'No available tasks'}, status=404)
+            assignment, _ = TaskAssignment.objects.update_or_create(
+                task=task, annotator=request.user,
+                defaults={'status': TaskAssignment.Status.ASSIGNED},
+            )
+            return Response({
+                'task_id': task.id,
+                'assignment_id': assignment.id,
+            }, status=201)

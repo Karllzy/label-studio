@@ -18,11 +18,25 @@ OrganizationMemberMixin = load_func(settings.ORGANIZATION_MEMBER_MIXIN)
 class OrganizationMember(OrganizationMemberMixin, models.Model):
     """ """
 
+    ORG_ROLE_OWNER = 'OW'
+    ORG_ROLE_ADMIN = 'AD'
+    ORG_ROLE_MEMBER = 'ME'
+
+    ORG_ROLE_CHOICES = [
+        (ORG_ROLE_OWNER, 'Owner'),
+        (ORG_ROLE_ADMIN, 'Admin'),
+        (ORG_ROLE_MEMBER, 'Member'),
+    ]
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='om_through', help_text='User ID'
     )
     organization = models.ForeignKey(
         'organizations.Organization', on_delete=models.CASCADE, help_text='Organization ID'
+    )
+    role = models.CharField(
+        _('role'), max_length=2, choices=ORG_ROLE_CHOICES, default=ORG_ROLE_MEMBER,
+        help_text='Role of the user in the organization',
     )
 
     created_at = models.DateTimeField(_('created at'), auto_now_add=True)
@@ -137,13 +151,16 @@ class Organization(OrganizationMixin, models.Model):
     def has_permission(self, user):
         return OrganizationMember.objects.filter(user=user, organization=self, deleted_at__isnull=True).exists()
 
-    def add_user(self, user):
+    def add_user(self, user, role=None):
         if self.users.filter(pk=user.pk).exists():
             logger.debug('User already exists in organization.')
             return
 
+        if role is None:
+            role = OrganizationMember.ORG_ROLE_OWNER if self.created_by_id == user.pk else OrganizationMember.ORG_ROLE_MEMBER
+
         with transaction.atomic():
-            om = OrganizationMember(user=user, organization=self)
+            om = OrganizationMember(user=user, organization=self, role=role)
             om.save()
 
             return om

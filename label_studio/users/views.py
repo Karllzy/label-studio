@@ -123,7 +123,7 @@ def user_login(request):
         form = login_form(request.POST)
         if form.is_valid():
             user = form.cleaned_data['user']
-            login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+            login(request, user, backend=getattr(user, 'backend', 'users.backends.EmailOrUsernameBackend'))
             if form.cleaned_data['persist_session'] is not True:
                 # Set the session to expire when the browser is closed
                 request.session['keep_me_logged_in'] = False
