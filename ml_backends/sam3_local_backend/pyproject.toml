@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sam3-local-backend"
+version = "0.1.0"
+description = "Local SAM3 backend for Label Studio"
+readme = "README.md"
+requires-python = ">=3.10,<4"
+dependencies = [
+    "numpy>=2.2.6,<3",
+    "opencv-python>=4.10.0.84",
+    "Pillow>=10.4.0",
+    "requests>=2.32.3,<2.33",
+    "torch>=2.4.0",
+]
+
+[project.scripts]
+sam3-local-backend = "sam3_local_backend.server:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["sam3_local_backend*"]
