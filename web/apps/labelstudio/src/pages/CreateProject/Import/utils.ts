@@ -11,7 +11,6 @@ export const importFiles = async ({
   onUploadFinish,
   onFinish,
   onError,
-  onProgress,
   dontCommitToProject,
 }: {
   files: { name: string; size?: number }[];
@@ -21,30 +20,33 @@ export const importFiles = async ({
   onUploadFinish?: (files: { name: string }[]) => void;
   onFinish?: (response: any) => void;
   onError?: (response: any) => void;
-  onProgress?: (progress: { file: string; percent: number }) => void;
   dontCommitToProject?: boolean;
 }) => {
   onUploadStart?.(files);
 
   const query = dontCommitToProject ? { commit_to_project: "false" } : {};
 
-  const contentType =
-    body instanceof FormData
-      ? "multipart/form-data" // usual multipart for usual files
-      : "application/x-www-form-urlencoded"; // chad urlencoded for URL uploads
-  const res = await API.invoke(
-    "importFiles",
-    { pk: project.id, ...query },
-    { headers: { "Content-Type": contentType }, body },
-  );
+  try {
+    const contentType =
+      body instanceof FormData
+        ? "multipart/form-data" // usual multipart for usual files
+        : "application/x-www-form-urlencoded"; // chad urlencoded for URL uploads
+    const res = await API.invoke(
+      "importFiles",
+      { pk: project.id, ...query },
+      { headers: { "Content-Type": contentType }, body },
+    );
 
-  if (res && !res.error) {
-    await onFinish?.(res);
-  } else {
-    onError?.(res?.response);
+    if (res && !res.error) {
+      await onFinish?.(res);
+    } else {
+      onError?.(res?.response);
+    }
+  } catch (err) {
+    onError?.(err);
+  } finally {
+    onUploadFinish?.(files);
   }
-
-  onUploadFinish?.(files);
 };
 
 export const chunkedUploadFile = async ({
@@ -63,13 +65,17 @@ export const chunkedUploadFile = async ({
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
   try {
-    const initRes = await API.invoke("chunkedUploadInit", { pk: project.id }, {
-      body: {
-        filename: file.name,
-        total_size: file.size,
-        total_chunks: totalChunks,
+    const initRes = await API.invoke(
+      "chunkedUploadInit",
+      { pk: project.id },
+      {
+        body: {
+          filename: file.name,
+          total_size: file.size,
+          total_chunks: totalChunks,
+        },
       },
-    });
+    );
 
     if (!initRes || initRes.error) {
       onError?.(initRes?.response || "Failed to initialize upload");

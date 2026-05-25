@@ -5,11 +5,11 @@ import { importFiles } from "./utils";
 
 const DEFAULT_COLUMN = "$undefined$";
 
-export const useImportPage = (project, sample) => {
+export const useImportPage = (project, { loadExistingFileUploads = true } = {}) => {
   const [uploading, setUploadingStatus] = React.useState(false);
   const [fileIds, setFileIds] = React.useState([]);
   const [_columns, _setColumns] = React.useState([]);
-  const addColumns = (cols) => _setColumns((current) => unique(current.concat(cols)));
+  const addColumns = (cols) => _setColumns((current) => unique(current.concat(Array.isArray(cols) ? cols : [])));
   // undefined - no csv added, all good, keep moving
   // choose - csv added, block modal until user chooses a way to hangle csv
   // tasks | ts — choice made, all good, this cannot be undone
@@ -22,18 +22,19 @@ export const useImportPage = (project, sample) => {
 
   const finishUpload = async () => {
     setUploadingStatus(true);
-    const imported = await api.callApi("reimportFiles", {
-      params: {
-        pk: project.id,
-      },
-      body: {
-        file_upload_ids: fileIds,
-        files_as_tasks_list: csvHandling === "tasks",
-      },
-    });
-
-    setUploadingStatus(false);
-    return imported;
+    try {
+      return await api.callApi("reimportFiles", {
+        params: {
+          pk: project.id,
+        },
+        body: {
+          file_upload_ids: fileIds,
+          files_as_tasks_list: csvHandling === "tasks",
+        },
+      });
+    } finally {
+      setUploadingStatus(false);
+    }
   };
 
   const uploadSample = useCallback(
@@ -60,6 +61,7 @@ export const useImportPage = (project, sample) => {
     setCsvHandling,
     onFileListUpdate: setFileIds,
     dontCommitToProject: true,
+    loadExistingFileUploads,
   };
 
   return { columns, uploading, uploadDisabled, finishUpload, fileIds, pageProps, uploadSample };

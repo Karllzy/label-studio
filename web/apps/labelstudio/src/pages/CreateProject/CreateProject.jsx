@@ -112,7 +112,7 @@ export const CreateProject = ({ onClose }) => {
     setError(null);
   }, [name]);
 
-  const { columns, uploading, uploadDisabled, finishUpload, pageProps, uploadSample } = useImportPage(project, sample);
+  const { columns, uploading, uploadDisabled, finishUpload, pageProps, uploadSample } = useImportPage(project);
 
   const rootClass = cn("create-project");
   const tabClass = rootClass.elem("tab");
@@ -204,13 +204,7 @@ export const CreateProject = ({ onClose }) => {
           <ToggleItems items={steps} active={step} onSelect={setStep} />
 
           <Space>
-            <Button
-              variant="negative"
-              look="outlined"
-              onClick={onDelete}
-              waiting={waiting}
-              aria-label="取消创建项目"
-            >
+            <Button variant="negative" look="outlined" onClick={onDelete} waiting={waiting} aria-label="取消创建项目">
               取消
             </Button>
             <Button

@@ -4,7 +4,7 @@ import { IconCode, IconErrorAlt, IconFileUpload, IconInfoOutline, IconTrash, Ico
 import { cn as scn } from "@humansignal/shad/utils";
 import { useAtomValue } from "jotai";
 import Input from "libs/datamanager/src/components/Common/Input/Input";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useAPI } from "../../../providers/ApiProvider";
 import { cn } from "../../../utils/bem";
 import { unique } from "../../../utils/helpers";
@@ -22,9 +22,6 @@ const dropzoneClass = cn("dropzone");
 const FLASH_ANIMATION_DURATION = 2000; // 2 seconds
 const FILENAME_TRUNCATE_START = 24;
 const FILENAME_TRUNCATE_END = 24;
-
-/** If the user selects at least this many image files, show faster-import guidance before starting browser upload. */
-const BULK_IMAGE_UPLOAD_THRESHOLD = 80;
 
 function flatten(nested) {
   return [].concat(...nested);
@@ -155,13 +152,12 @@ export const ImportPage = ({
   setCsvHandling,
   addColumns,
   openLabelingConfig,
+  loadExistingFileUploads = true,
 }) => {
   const [error, setError] = useState();
   const [newlyUploadedFiles, setNewlyUploadedFiles] = useState(new Set());
   const [uploadProgress, setUploadProgress] = useState({});
   const prevUploadedRef = useRef(new Set());
-  const pendingBulkFilesRef = useRef(null);
-  const [bulkImagePrompt, setBulkImagePrompt] = useState(null);
   const [serverPath, setServerPath] = useState("");
   const [serverRecursive, setServerRecursive] = useState(false);
   const [serverImportBusy, setServerImportBusy] = useState(false);
@@ -288,7 +284,7 @@ export const ImportPage = ({
 
   const importFilesImmediately = useCallback(
     async (files, body) => {
-      importFiles({
+      return importFiles({
         files,
         body,
         project,
@@ -299,7 +295,7 @@ export const ImportPage = ({
         dontCommitToProject,
       });
     },
-    [project, onFinish],
+    [project, onFinish, dontCommitToProject],
   );
 
   const performSendFiles = useCallback(
@@ -357,11 +353,15 @@ export const ImportPage = ({
       // Upload normal files via standard multipart
       if (normalFiles.length > 0) {
         const fd = new FormData();
-        for (const f of normalFiles) {
-          fd.append(f.name, f);
-        }
+        // Unique field names: Django request.FILES.items() exposes one entry per key — duplicate
+        // basenames in one batch would otherwise drop files. Original filename is preserved via
+        // the FormData third argument.
+        normalFiles.forEach((f, i) => {
+          fd.append(`file_${i}`, f, f.name);
+        });
         return importFilesImmediately(normalFiles, fd);
-      } else if (largeFiles.length === 0) {
+      }
+      if (largeFiles.length === 0) {
         onWaiting?.(false);
       }
     },
@@ -380,46 +380,11 @@ export const ImportPage = ({
         }
       }
 
-      const imageCount = files.filter((f) =>
-        supportedExtensions.image.includes(getFileExtension(f.name)),
-      ).length;
-      if (imageCount >= BULK_IMAGE_UPLOAD_THRESHOLD) {
-        pendingBulkFilesRef.current = files;
-        setBulkImagePrompt({ imageCount, total: files.length });
-        return;
-      }
-
       onWaiting?.(true);
       performSendFiles(files);
     },
     [onError, onWaiting, performSendFiles],
   );
-
-  const continueBrowserBulkUpload = useCallback(() => {
-    const pending = pendingBulkFilesRef.current;
-    pendingBulkFilesRef.current = null;
-    setBulkImagePrompt(null);
-    if (!pending?.length) return;
-    onWaiting?.(true);
-    performSendFiles(pending);
-  }, [onWaiting, performSendFiles]);
-
-  const dismissBulkImagePrompt = useCallback(() => {
-    pendingBulkFilesRef.current = null;
-    setBulkImagePrompt(null);
-  }, []);
-
-  const bulkApiExample = useMemo(() => {
-    const base = typeof window !== "undefined" ? window.APP_SETTINGS?.hostname ?? "" : "";
-    const pk = project?.id ?? "<project_id>";
-    return `curl -H "Authorization: Token YOUR_TOKEN" \\\n  -X POST "${base}/api/projects/${pk}/import?commit_to_project=false" \\\n  -F "file=@your_tasks.json"`;
-  }, [project?.id]);
-
-  const localServerImportExample = useMemo(() => {
-    const base = typeof window !== "undefined" ? window.APP_SETTINGS?.hostname ?? "" : "";
-    const pk = project?.id ?? "<project_id>";
-    return `curl -H "Authorization: Token YOUR_TOKEN" -H "Content-Type: application/json" \\\n  -X POST "${base}/api/projects/${pk}/import/local-files" \\\n  -d '{"items":["path/under/LOCAL_FILES_DOCUMENT_ROOT"],"recursive":true}'`;
-  }, [project?.id]);
 
   const runServerPathImport = useCallback(async () => {
     const trimmed = serverPath.trim();
@@ -478,7 +443,7 @@ export const ImportPage = ({
   );
 
   useEffect(() => {
-    if (project?.id !== undefined) {
+    if (loadExistingFileUploads && project?.id !== undefined) {
       loadFilesList().then((files) => {
         if (csvHandling) return;
         // empirical guess on start if we have some possible tasks list/structured data problem
@@ -487,7 +452,7 @@ export const ImportPage = ({
         }
       });
     }
-  }, [project?.id, loadFilesList]);
+  }, [project?.id, loadFilesList, loadExistingFileUploads]);
 
   const urlRef = useRef();
 
@@ -552,7 +517,8 @@ export const ImportPage = ({
       {dontCommitToProject && (
         <div className="flex flex-col gap-tight w-full max-w-4xl">
           <Typography variant="label" size="small" className="text-neutral-content-subtle">
-            若图片已在 Label Studio 所在机器的磁盘上（位于 LOCAL_FILES_DOCUMENT_ROOT 下），可让服务端直接复制到项目上传目录（需设置环境变量 ENABLE_SERVER_SIDE_LOCAL_IMPORT=1）：
+            若图片已在 Label Studio 所在机器的磁盘上（位于 LOCAL_FILES_DOCUMENT_ROOT
+            下），可让服务端直接复制到项目上传目录（需设置环境变量 ENABLE_SERVER_SIDE_LOCAL_IMPORT=1）：
           </Typography>
           <div className="flex flex-wrap items-end gap-tight">
             <Input
@@ -580,31 +546,6 @@ export const ImportPage = ({
             </Button>
           </div>
         </div>
-      )}
-
-      {bulkImagePrompt && (
-        <SimpleCard title="大量图片导入" className="w-full max-w-4xl">
-          <Typography variant="body" size="small" className="mb-tight">
-            已选择 {bulkImagePrompt.imageCount} 张图片（共 {bulkImagePrompt.total}{" "}
-            个文件）。通过浏览器逐文件上传往往较慢，建议改用 API、命令行批量导入，或在服务器已启用本地导入时从磁盘路径复制。
-          </Typography>
-          <div className="flex flex-wrap gap-tight mb-tight">
-            <Button type="button" variant="primary" look="filled" onClick={continueBrowserBulkUpload}>
-              仍使用浏览器上传
-            </Button>
-            <Button type="button" variant="neutral" look="outlined" onClick={dismissBulkImagePrompt}>
-              取消本次选择
-            </Button>
-          </div>
-          <Typography variant="label" size="small" className="text-neutral-content-subtle mb-1">
-            使用 HTTP API 分批上传（示例）：
-          </Typography>
-          <CodeBlock code={bulkApiExample} className="w-full text-left mb-tight" />
-          <Typography variant="label" size="small" className="text-neutral-content-subtle mb-1">
-            服务端从 LOCAL_FILES_DOCUMENT_ROOT 复制（需 ENABLE_SERVER_SIDE_LOCAL_IMPORT=1）：
-          </Typography>
-          <CodeBlock code={localServerImportExample} className="w-full text-left" />
-        </SimpleCard>
       )}
 
       <ErrorMessage error={error} />
@@ -651,17 +592,14 @@ export const ImportPage = ({
                       <dd>{supportedExtensions.pdf.join(", ")}</dd>
                     </dl>
                     <div className="tips">
-                        <b>Tips:</b>
-                        <ul className="mt-2 ml-4 list-disc font-normal">
+                      <b>Tips:</b>
+                      <ul className="mt-2 ml-4 list-disc font-normal">
                         <li>
-                          Large files (over 50 MB) are automatically uploaded using chunked upload with progress tracking.
+                          Large files (over 50 MB) are automatically uploaded using chunked upload with progress
+                          tracking.
                         </li>
                         <li>
                           For very large datasets, consider using local/NAS storage connectors in project settings.
-                        </li>
-                        <li>
-                          Selecting {BULK_IMAGE_UPLOAD_THRESHOLD}+ images will prompt you with API and server-side import
-                          options before the browser upload starts.
                         </li>
                       </ul>
                     </div>
@@ -704,7 +642,7 @@ export const ImportPage = ({
                         );
                         return (
                           <tr
-                            key={file.file}
+                            key={file.id}
                             className={newlyUploadedFiles.has(file.id) ? importClass.elem("upload-flash") : ""}
                           >
                             <td className={importClass.elem("file-name").toClassName()}>
@@ -763,10 +701,16 @@ export const ImportPage = ({
                             </td>
                             <td className={importClass.elem("file-size").toClassName()}>
                               {progress !== undefined ? (
-                                <Typography variant="body" size="smaller" className="text-nowrap text-neutral-content-subtle text-right">
+                                <Typography
+                                  variant="body"
+                                  size="smaller"
+                                  className="text-nowrap text-neutral-content-subtle text-right"
+                                >
                                   {progress}%
                                 </Typography>
-                              ) : <>&nbsp;</>}
+                              ) : (
+                                <>&nbsp;</>
+                              )}
                             </td>
                           </tr>
                         );

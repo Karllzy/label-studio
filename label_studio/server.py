@@ -125,6 +125,41 @@ def _get_user_info(username):
     return user_data
 
 
+def _resolve_user_by_identifier(identifier):
+    """Return one user for an email or username, even if case-variant duplicates exist."""
+    from django.db.models import Q
+    from users.models import User, normalize_username
+
+    if not identifier:
+        return None
+
+    identifier = identifier.strip()
+    normalized = normalize_username(identifier)
+    matches = User.objects.filter(
+        Q(email__iexact=identifier) | Q(username__iexact=identifier) | Q(username__iexact=normalized)
+    ).order_by('id')
+
+    if not matches.exists():
+        return None
+
+    user = matches.filter(email__iexact='admin@admin.com').first()
+    if user is None:
+        user = matches.filter(is_superuser=True).first()
+    if user is None:
+        user = matches.first()
+
+    extra = matches.exclude(pk=user.pk)
+    if extra.exists():
+        logger.warning(
+            'Multiple users match %r (ids=%s); using id=%s',
+            identifier,
+            list(matches.values_list('id', flat=True)),
+            user.pk,
+        )
+
+    return user
+
+
 def _create_user(input_args, config):
     from organizations.models import Organization
     from users.models import User
@@ -153,26 +188,33 @@ def _create_user(input_args, config):
     if not password and not input_args.quiet_mode:
         password = getpass.getpass(f'User password for {username}: ')
 
-    try:
-        email = username if '@' in username else f'{username}@local'
-        user = User.objects.create_user(email=email, username=username, password=password)
-        user.is_staff = True
-        user.is_superuser = True
+    user = _resolve_user_by_identifier(username)
+
+    if user is None:
+        try:
+            email = username if '@' in username else f'{username}@local'
+            user = User.objects.create_user(email=email, username=username, password=password)
+            user.is_staff = True
+            user.is_superuser = True
+            user.save()
+
+            if token and len(token) > 5:
+                from rest_framework.authtoken.models import Token
+
+                Token.objects.filter(key=user.auth_token.key).update(key=token)
+            elif token:
+                print(f"Token {token} is not applied to user {DEFAULT_USERNAME} because it's empty or len(token) < 5")
+
+        except IntegrityError:
+            print('User {} already exists'.format(username))
+            user = _resolve_user_by_identifier(username)
+    elif password and not user.check_password(password):
+        user.set_password(password)
         user.save()
+        print(f'User {username} password changed')
 
-        if token and len(token) > 5:
-            from rest_framework.authtoken.models import Token
-
-            Token.objects.filter(key=user.auth_token.key).update(key=token)
-        elif token:
-            print(f"Token {token} is not applied to user {DEFAULT_USERNAME} because it's empty or len(token) < 5")
-
-    except IntegrityError:
-        print('User {} already exists'.format(username))
-
-    from django.db.models import Q
-
-    user = User.objects.get(Q(email__iexact=username) | Q(username__iexact=username))
+    if user is None:
+        raise ValueError(f'User {username} could not be found or created')
     org = Organization.objects.first()
     if not org:
         org = Organization.create_organization(
@@ -211,13 +253,12 @@ def _init(input_args, config):
 
 def _reset_password(input_args):
     from users.models import User
-    from django.db.models import Q
 
     username = input_args.username
     if not username:
         username = input('Username: ')
 
-    user = User.objects.filter(Q(email__iexact=username) | Q(username__iexact=username)).first()
+    user = _resolve_user_by_identifier(username)
     if user is None:
         print('User with username {} not found'.format(username))
         return
