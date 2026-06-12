@@ -19,6 +19,11 @@ if (-not (Test-Path -LiteralPath $LabelStudioExe)) {
     throw "Label Studio executable not found: $LabelStudioExe"
 }
 
+$ResetAdminScript = Join-Path $PSScriptRoot 'reset_default_admin.ps1'
+if (-not (Test-Path -LiteralPath $ResetAdminScript)) {
+    throw "Admin password reset script not found: $ResetAdminScript"
+}
+
 if (-not $env:BASE_DATA_DIR) {
     $env:BASE_DATA_DIR = Join-Path $InstallRoot 'data\label-studio'
 }
@@ -37,5 +42,10 @@ Ensure-Directory -Path $env:BASE_DATA_DIR
 Write-Host "Starting Label Studio on http://$($env:HOST):$($env:PORT)"
 Write-Host "BASE_DATA_DIR: $($env:BASE_DATA_DIR)"
 Write-Host "DATABASE_NAME: $($env:DATABASE_NAME)"
+
+& powershell.exe -ExecutionPolicy Bypass -File $ResetAdminScript -InstallRoot $InstallRoot -EnvFile $EnvFile
+if ($LASTEXITCODE -ne 0) {
+    throw "Default Admin password reset failed with exit code $LASTEXITCODE."
+}
 
 & $LabelStudioExe start --host $env:HOST --port $env:PORT --no-browser

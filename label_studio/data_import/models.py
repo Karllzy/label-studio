@@ -1,6 +1,7 @@
 """This file and its contents are licensed under the Apache License 2.0. Please see the included NOTICE for copyright information and LICENSE for a copy of the license."""
 
 import logging
+import ntpath
 import os
 import uuid
 from collections import Counter
@@ -71,7 +72,8 @@ class FileUpload(models.Model):
         if hasattr(self, '_file_body'):
             body = getattr(self, '_file_body')
         else:
-            body = self.file.read().decode('utf-8')
+            with self.file.open('rb') as file_handle:
+                body = file_handle.read().decode('utf-8')
             setattr(self, '_file_body', body)
         return body
 
@@ -125,7 +127,8 @@ class FileUpload(models.Model):
         """
         logger.debug('Read tasks list from CSV file {}'.format(self.filepath))
         separator = self._detect_csv_separator()
-        tasks = pd.read_csv(self.file.open(), sep=separator).fillna('').to_dict('records')
+        with self.file.open('rb') as file_handle:
+            tasks = pd.read_csv(file_handle, sep=separator).fillna('').to_dict('records')
         tasks = [{'data': task} for task in tasks]
         return tasks
 
@@ -137,7 +140,8 @@ class FileUpload(models.Model):
             list: List of tasks in the format [{'data': {...}}, ...]
         """
         logger.debug('Read tasks list from TSV file {}'.format(self.filepath))
-        tasks = pd.read_csv(self.file.open(), sep='\t').fillna('').to_dict('records')
+        with self.file.open('rb') as file_handle:
+            tasks = pd.read_csv(file_handle, sep='\t').fillna('').to_dict('records')
         tasks = [{'data': task} for task in tasks]
         return tasks
 
@@ -483,10 +487,35 @@ class ChunkedUpload(models.Model):
     def get_chunk_path(self, chunk_index):
         return os.path.join(self.chunk_dir, f'chunk_{chunk_index:06d}')
 
+    @staticmethod
+    def validate_filename(filename):
+        if not isinstance(filename, str) or not filename.strip() or '\x00' in filename:
+            raise ValidationError('A valid filename is required')
+
+        filename = filename.strip()
+        if filename != os.path.basename(filename) or filename != ntpath.basename(filename):
+            raise ValidationError('filename must not contain a path')
+        return filename
+
+    def uploaded_chunk_indexes(self):
+        indexes = set()
+        if not os.path.isdir(self.chunk_dir):
+            return indexes
+
+        for name in os.listdir(self.chunk_dir):
+            if not name.startswith('chunk_'):
+                continue
+            try:
+                indexes.add(int(name.removeprefix('chunk_')))
+            except ValueError:
+                continue
+        return indexes
+
     def merge_chunks(self):
         """Merge all chunks into a single file and return the path."""
         os.makedirs(self.chunk_dir, exist_ok=True)
-        merged_path = os.path.join(self.chunk_dir, self.filename)
+        filename = self.validate_filename(self.filename)
+        merged_path = os.path.join(self.chunk_dir, f'merged-{filename}')
         with open(merged_path, 'wb') as merged:
             for i in range(self.total_chunks):
                 chunk_path = self.get_chunk_path(i)

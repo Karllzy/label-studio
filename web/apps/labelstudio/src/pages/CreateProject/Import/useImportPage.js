@@ -10,6 +10,7 @@ export const useImportPage = (project, { loadExistingFileUploads = true } = {}) 
   const [fileIds, setFileIds] = React.useState([]);
   const [_columns, _setColumns] = React.useState([]);
   const addColumns = (cols) => _setColumns((current) => unique(current.concat(Array.isArray(cols) ? cols : [])));
+  const resetColumns = () => _setColumns([]);
   // undefined - no csv added, all good, keep moving
   // choose - csv added, block modal until user chooses a way to hangle csv
   // tasks | ts — choice made, all good, this cannot be undone
@@ -40,14 +41,17 @@ export const useImportPage = (project, { loadExistingFileUploads = true } = {}) 
   const uploadSample = useCallback(
     async (sample, onStart, onFinish) => {
       onStart?.();
-      const url = sample.url;
-      const body = new URLSearchParams({ url });
-      await importFiles({
-        files: [{ name: url }],
-        body,
-        project,
-      });
-      onFinish?.();
+      try {
+        const url = sample.url;
+        const body = new URLSearchParams({ url });
+        return await importFiles({
+          files: [{ name: url }],
+          body,
+          project,
+        });
+      } finally {
+        onFinish?.();
+      }
     },
     [project],
   );
@@ -57,6 +61,7 @@ export const useImportPage = (project, { loadExistingFileUploads = true } = {}) 
     // onDisableSubmit: onDisableSubmit,
     highlightCsvHandling: uploadDisabled,
     addColumns,
+    resetColumns,
     csvHandling,
     setCsvHandling,
     onFileListUpdate: setFileIds,

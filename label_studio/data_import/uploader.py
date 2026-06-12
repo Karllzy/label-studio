@@ -15,6 +15,7 @@ from core.utils.common import timeit
 from core.utils.exceptions import extract_message
 from core.utils.io import ssrf_safe_get
 from django.conf import settings
+from django.core.files import File
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.exceptions import ValidationError
 
@@ -105,6 +106,7 @@ def collect_files_for_server_side_import(items, recursive):
     if len(items) > max_entries:
         raise ValidationError(f'Too many path entries (max {max_entries}).')
     max_files = settings.SERVER_SIDE_LOCAL_IMPORT_MAX_FILES
+    root = os.path.realpath(settings.LOCAL_FILES_DOCUMENT_ROOT)
     collected = []
     seen = set()
     for raw in items:
@@ -131,6 +133,12 @@ def collect_files_for_server_side_import(items, recursive):
         else:
             raise ValidationError(f'Path not found: {raw}')
         for abs_path in candidates:
+            abs_path = os.path.realpath(abs_path)
+            try:
+                if os.path.commonpath([abs_path, root]) != root:
+                    raise ValidationError('A discovered file resolves outside LOCAL_FILES_DOCUMENT_ROOT.')
+            except ValueError:
+                raise ValidationError('A discovered file has an invalid path.')
             if abs_path in seen:
                 continue
             _, ext = os.path.splitext(abs_path)
@@ -163,9 +171,7 @@ def create_file_uploads_from_local_document_paths(user, project, items, recursiv
     for abs_path in paths:
         filename = os.path.basename(abs_path)
         with open(abs_path, 'rb') as fp:
-            data = fp.read()
-        uploaded = SimpleUploadedFile(filename, data)
-        file_upload = create_file_upload(user, project, uploaded)
+            file_upload = create_file_upload(user, project, File(fp, name=filename))
         if file_upload.format_could_be_tasks_list:
             could_be_tasks_list = True
         file_upload_ids.append(file_upload.id)

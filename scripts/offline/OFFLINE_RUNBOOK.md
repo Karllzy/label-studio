@@ -47,6 +47,7 @@ powershell -ExecutionPolicy Bypass -File scripts/offline/build_offline_bundle.ps
   -VCRedistInstallerPath C:\Users\zhenye\Downloads\VC_redist.x64.exe `
   -Sam3SourceDir C:\Users\Administrator\Developer\sam3 `
   -Sam3CheckpointPath C:\Users\Administrator\.cache\modelscope\hub\models\facebook\sam3___1\sam3.1_multiplex.pt `
+  -Sam3GpuTorchPlatform cu126 `
   -AppPythonExe C:\Users\Administrator\Developer\label-studio-develop\.offline-build-venv\Scripts\python.exe `
   -Force
 ```
@@ -67,6 +68,14 @@ The bundle should contain:
 - `models\sam3.1_multiplex.pt`
 - `scripts\install_offline_bundle.ps1`
 - `scripts\start_all.ps1`
+- `scripts\healthcheck.ps1`
+- `scripts\post_install_selfcheck.ps1`
+
+The generated `manifest.json` will also record the bundled PyTorch channels for SAM3, for example:
+
+- `sam3_cpu_torch_index_url: https://download.pytorch.org/whl/cpu`
+- `sam3_gpu_torch_platform: cu126`
+- `sam3_gpu_torch_index_url: https://download.pytorch.org/whl/cu126`
 
 ## Step 2: Copy To The Offline Machine
 
@@ -83,7 +92,13 @@ D:\offline_bundle
 Open PowerShell as a normal user and run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File D:\offline_bundle\scripts\install_offline_bundle.ps1 -InstallRoot D:\LSOffline
+powershell -ExecutionPolicy Bypass -File D:\offline_bundle\scripts\install_offline_bundle.ps1 -InstallRoot D:\LSOffline -Sam3RuntimeVariant gpu
+```
+
+If the target machine should not use GPU acceleration, install the CPU runtime instead:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File D:\offline_bundle\scripts\install_offline_bundle.ps1 -InstallRoot D:\LSOffline -Sam3RuntimeVariant cpu
 ```
 
 What this does:
@@ -121,6 +136,21 @@ Expected:
 
 - SAM3 `/health` returns `status: UP`
 - Label Studio homepage returns HTTP `200`
+- the offline regression self-check returns JSON with `admin_duplicate_check: ok` and `api_regression_check: ok`
+
+The regression self-check covers the 2026-05-25 fixes for duplicate/orphan default Admin users and second-pass batch
+image imports. It creates and deletes a temporary `offline-selfcheck-*` project. You can run it directly after the stack
+is up:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File D:\LSOffline\scripts\post_install_selfcheck.ps1
+```
+
+If you only need the old HTTP probes, skip the regression portion:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File D:\LSOffline\scripts\healthcheck.ps1 -SkipRegressionSelfCheck
+```
 
 ## Config Files
 

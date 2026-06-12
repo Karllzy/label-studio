@@ -9,11 +9,23 @@ description = "Local SAM3 backend for Label Studio"
 readme = "README.md"
 requires-python = ">=3.10,<4"
 dependencies = [
-    "numpy>=2.2.6,<3",
+    "numpy>=1.26,<3",
     "opencv-python>=4.10.0.84",
     "Pillow>=10.4.0",
-    "requests>=2.32.3,<2.33",
+    "requests>=2.32.3,<2.34",
     "torch>=2.4.0",
+    "torchvision>=0.19.0",
+    "triton-windows; platform_system == 'Windows'",
+    "timm>=1.0.17",
+    "tqdm",
+    "ftfy==6.1.1",
+    "regex",
+    "iopath>=0.1.10",
+    "pycocotools",
+    "psutil",
+    "einops",
+    "typing_extensions",
+    "huggingface_hub",
 ]
 
 [project.scripts]

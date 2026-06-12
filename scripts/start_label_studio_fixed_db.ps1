@@ -7,6 +7,7 @@ $DjangoRoot = Join-Path $RepoRoot "label_studio"
 $VenvPython = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 $LocalEnv = Join-Path $ScriptDir "local.env"
 $EnvLoader = Join-Path $ScriptDir "load_local_env.ps1"
+$ResetAdminScript = Join-Path $ScriptDir "reset_default_admin.ps1"
 
 if (Test-Path $EnvLoader) {
     . $EnvLoader
@@ -22,6 +23,16 @@ Write-Host "Django root: $DjangoRoot"
 Write-Host "Python: $VenvPython"
 Write-Host "BASE_DATA_DIR: $env:BASE_DATA_DIR"
 Write-Host "DATABASE_NAME: $env:DATABASE_NAME"
+
+if (-not (Test-Path -LiteralPath $ResetAdminScript)) {
+    throw "Admin password reset script not found: $ResetAdminScript"
+}
+
+Write-Host "Resetting default Admin password to Admin123!..."
+& powershell -ExecutionPolicy Bypass -File $ResetAdminScript
+if ($LASTEXITCODE -ne 0) {
+    throw "Default Admin password reset failed with exit code $LASTEXITCODE."
+}
 
 Push-Location $DjangoRoot
 try {

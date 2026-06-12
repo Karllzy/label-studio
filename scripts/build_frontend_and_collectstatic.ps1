@@ -81,6 +81,10 @@ function Resolve-PythonExe {
 
 $YarnRunner = Resolve-YarnRunner
 $PythonExe = Resolve-PythonExe
+$YarnDirectory = Split-Path -Parent $YarnRunner.Command
+if ($YarnDirectory -and ($env:PATH -split ';' -notcontains $YarnDirectory)) {
+    $env:PATH = "$YarnDirectory;$env:PATH"
+}
 
 Write-Host "Repo root: $RepoRoot"
 Write-Host "Yarn: $($YarnRunner.Description)"

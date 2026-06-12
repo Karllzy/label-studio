@@ -6,7 +6,7 @@ from contextlib import nullcontext
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from xml.etree import ElementTree as ET
 
 import cv2
@@ -70,6 +70,8 @@ class Sam3Backend:
         self.result_type = None
         self.prompt_from_name = None
         self.prompt_type = None
+        self.label_studio_hostname = None
+        self.label_studio_access_token = None
 
     def ensure_model(self):
         if self.processor is not None:
@@ -84,7 +86,7 @@ class Sam3Backend:
         self.processor = Sam3Processor(self.model)
         logger.info('SAM3 model ready')
 
-    def setup(self, schema):
+    def setup(self, schema, hostname=None, access_token=None):
         parsed = self._parse_label_config(schema)
         self.labels = parsed['labels']
         self.from_name = parsed['from_name']
@@ -93,6 +95,8 @@ class Sam3Backend:
         self.result_type = parsed['result_type']
         self.prompt_from_name = parsed.get('prompt_from_name')
         self.prompt_type = parsed.get('prompt_type')
+        self.label_studio_hostname = hostname or self.label_studio_hostname
+        self.label_studio_access_token = access_token or self.label_studio_access_token
         self.ensure_model()
         return {
             'model_version': self.model_version,
@@ -465,18 +469,42 @@ class Sam3Backend:
         if not image_value:
             raise ValueError(f"Task {task.get('id')} does not contain an image-like field: {data}")
 
-        if isinstance(image_value, str) and image_value.startswith('/data/upload/'):
-            local_path = self.media_dir / image_value.removeprefix('/data/')
-            if local_path.exists():
-                return Image.open(local_path).convert('RGB')
+        if isinstance(image_value, str):
+            parsed_url = urlparse(image_value)
+            upload_path = unquote(parsed_url.path)
+            if upload_path.startswith('/data/upload/'):
+                local_path = (self.media_dir / upload_path.removeprefix('/data/')).resolve()
+                media_dir = self.media_dir.resolve()
+                if media_dir == local_path or media_dir in local_path.parents:
+                    if local_path.exists():
+                        with Image.open(local_path) as image:
+                            return image.convert('RGB')
 
-        if isinstance(image_value, str) and Path(image_value).exists():
-            return Image.open(image_value).convert('RGB')
+        if isinstance(image_value, str):
+            candidate_path = Path(image_value)
+            if candidate_path.is_absolute() and candidate_path.exists():
+                candidate_path = candidate_path.resolve()
+                base_data_dir = self.base_data_dir.resolve()
+                if base_data_dir == candidate_path or base_data_dir in candidate_path.parents:
+                    with Image.open(candidate_path) as image:
+                        return image.convert('RGB')
 
         if isinstance(image_value, str) and image_value.startswith(('http://', 'https://')):
-            response = requests.get(image_value, timeout=30)
+            headers = {}
+            label_studio_url = urlparse(self.label_studio_hostname or '')
+            image_url = urlparse(image_value)
+            is_label_studio_url = (
+                label_studio_url.scheme in ('http', 'https')
+                and label_studio_url.netloc
+                and image_url.scheme == label_studio_url.scheme
+                and image_url.netloc == label_studio_url.netloc
+            )
+            if self.label_studio_access_token and is_label_studio_url:
+                headers['Authorization'] = f'Token {self.label_studio_access_token}'
+            response = requests.get(image_value, timeout=30, headers=headers)
             response.raise_for_status()
-            return Image.open(BytesIO(response.content)).convert('RGB')
+            with Image.open(BytesIO(response.content)) as image:
+                return image.convert('RGB')
 
         raise ValueError(f"Unsupported image source for task {task.get('id')}: {image_value}")
 
@@ -573,13 +601,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path.rstrip('/')
         if path == '/health':
+            checkpoint_exists = BACKEND.checkpoint_path.is_file()
             self._send_json(
                 {
-                    'status': 'UP',
+                    'status': 'UP' if checkpoint_exists else 'DOWN',
                     'device': BACKEND.device,
                     'model_version': BACKEND.model_version,
                     'checkpoint_path': str(BACKEND.checkpoint_path),
-                }
+                    'checkpoint_exists': checkpoint_exists,
+                    'model_loaded': BACKEND.processor is not None,
+                },
+                status=200 if checkpoint_exists else 503,
             )
             return
 
@@ -595,7 +627,11 @@ class Handler(BaseHTTPRequestHandler):
             payload = self._read_json()
 
             if path == '/setup':
-                result = BACKEND.setup(payload.get('schema', ''))
+                result = BACKEND.setup(
+                    payload.get('schema', ''),
+                    hostname=payload.get('hostname'),
+                    access_token=payload.get('access_token'),
+                )
                 self._send_json(result)
                 return
 

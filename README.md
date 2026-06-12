@@ -131,6 +131,39 @@ python label_studio/manage.py collectstatic
 python label_studio/manage.py runserver
 ```
 
+### Local Windows startup for this repository
+
+This repository includes PowerShell scripts for the local Windows workflow used in this fork.
+
+Start Label Studio and the SAM3 ML backend together:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start_local_stack.ps1
+```
+
+If you changed frontend code and need to rebuild static assets first:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start_local_stack.ps1 -BuildFrontend
+```
+
+Useful individual scripts:
+
+```powershell
+# Start only Label Studio
+powershell -ExecutionPolicy Bypass -File .\scripts\start_label_studio_fixed_db.ps1
+
+# Start only the SAM3 ML backend
+powershell -ExecutionPolicy Bypass -File .\scripts\start_sam3_ml_backend.ps1
+
+# Rebuild frontend assets and collect Django static files
+powershell -ExecutionPolicy Bypass -File .\scripts\build_frontend_and_collectstatic.ps1
+```
+
+The local SAM3 start scripts now wait for `/health` and run a one-time warmup
+`/setup` call automatically. This avoids the common first-run timeout when you
+add the backend from the UI.
+
 ### Deploy in a cloud instance
 
 You can deploy Label Studio with one click in Heroku, Microsoft Azure, or Google Cloud Platform: 

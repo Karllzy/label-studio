@@ -59,11 +59,20 @@ function traverseFileTree(item, path) {
       const dirReader = item.createReader();
       const dirPath = `${path + item.name}/`;
 
-      dirReader.readEntries((entries) => {
-        Promise.all(entries.map((entry) => traverseFileTree(entry, dirPath)))
-          .then(flatten)
-          .then(resolve);
-      });
+      const entries = [];
+      const readEntries = () => {
+        dirReader.readEntries((batch) => {
+          if (batch.length === 0) {
+            Promise.all(entries.map((entry) => traverseFileTree(entry, dirPath)))
+              .then(flatten)
+              .then(resolve);
+            return;
+          }
+          entries.push(...batch);
+          readEntries();
+        });
+      };
+      readEntries();
     }
   });
 }
@@ -151,16 +160,19 @@ export const ImportPage = ({
   csvHandling,
   setCsvHandling,
   addColumns,
+  resetColumns,
   openLabelingConfig,
   loadExistingFileUploads = true,
 }) => {
   const [error, setError] = useState();
   const [newlyUploadedFiles, setNewlyUploadedFiles] = useState(new Set());
-  const [uploadProgress, setUploadProgress] = useState({});
+  const [uploadProgress, setUploadProgress] = useState(new Map());
   const prevUploadedRef = useRef(new Set());
   const [serverPath, setServerPath] = useState("");
   const [serverRecursive, setServerRecursive] = useState(false);
   const [serverImportBusy, setServerImportBusy] = useState(false);
+  const [removingFileIds, setRemovingFileIds] = useState(new Set());
+  const fileInputRef = useRef();
   const api = useAPI();
   const projectConfigured = project?.label_config !== "<View></View>";
   const sampleConfig = useAtomValue(sampleDatasetAtom);
@@ -186,6 +198,15 @@ export const ImportPage = ({
 
       onFileListUpdate?.(ids);
       return { ...state, ids };
+    }
+    if (action.removeId) {
+      const ids = state.ids.filter((id) => id !== action.removeId);
+      onFileListUpdate?.(ids);
+      return {
+        ...state,
+        ids,
+        uploaded: state.uploaded.filter((file) => file.id !== action.removeId),
+      };
     }
     return state;
   };
@@ -229,7 +250,6 @@ export const ImportPage = ({
       err = { message, extra };
     }
     setError(err);
-    onWaiting?.(false);
   };
   const onFinish = useCallback(
     async (res) => {
@@ -237,13 +257,12 @@ export const ImportPage = ({
 
       dispatch({ ids: file_upload_ids });
       if (could_be_tasks_list && !csvHandling) setCsvHandling("choose");
-      onWaiting?.(false);
       addColumns(data_columns);
 
       await loadFilesList(file_upload_ids);
       return res;
     },
-    [addColumns, loadFilesList, csvHandling, setCsvHandling, onWaiting],
+    [addColumns, loadFilesList, csvHandling, setCsvHandling],
   );
 
   // Track newly uploaded files for flash animation
@@ -299,59 +318,49 @@ export const ImportPage = ({
   );
 
   const performSendFiles = useCallback(
-    (files) => {
+    async (files) => {
       files = [...files];
 
       // Separate large files for chunked upload
       const largeFiles = files.filter((f) => f.size && isLargeFile(f));
       const normalFiles = files.filter((f) => !f.size || !isLargeFile(f));
 
-      // Upload large files via chunked upload
-      if (largeFiles.length > 0) {
-        const uploadLargeFiles = async () => {
-          for (const file of largeFiles) {
-            dispatch({ sending: [file] });
-            setUploadProgress((prev) => ({ ...prev, [file.name]: 0 }));
+      const uploadLargeFiles = async () => {
+        for (const file of largeFiles) {
+          dispatch({ sending: [file] });
+          setUploadProgress((prev) => new Map(prev).set(file, 0));
 
-            await chunkedUploadFile({
-              file,
-              project,
-              onProgress: ({ percent }) => {
-                setUploadProgress((prev) => ({ ...prev, [file.name]: percent }));
-              },
-              onError: (err) => {
-                onError(typeof err === "string" ? new Error(err) : err);
-                dispatch({ sent: [file] });
-                setUploadProgress((prev) => {
-                  const next = { ...prev };
-                  delete next[file.name];
-                  return next;
-                });
-              },
-              onFinish: async (res) => {
-                dispatch({ sent: [file] });
-                setUploadProgress((prev) => {
-                  const next = { ...prev };
-                  delete next[file.name];
-                  return next;
-                });
-                if (res?.file_upload_id) {
-                  dispatch({ ids: [res.file_upload_id] });
-                  await loadFilesList([res.file_upload_id]);
-                }
-              },
-            });
-          }
-
-          if (normalFiles.length === 0) {
-            onWaiting?.(false);
-          }
-        };
-        uploadLargeFiles();
-      }
+          await chunkedUploadFile({
+            file,
+            project,
+            onProgress: ({ percent }) => {
+              setUploadProgress((prev) => new Map(prev).set(file, percent));
+            },
+            onError: (err) => {
+              onError(typeof err === "string" ? new Error(err) : err);
+              dispatch({ sent: [file] });
+              setUploadProgress((prev) => {
+                const next = new Map(prev);
+                next.delete(file);
+                return next;
+              });
+            },
+            onFinish: async (res) => {
+              dispatch({ sent: [file] });
+              setUploadProgress((prev) => {
+                const next = new Map(prev);
+                next.delete(file);
+                return next;
+              });
+              await onFinish(res);
+            },
+          });
+        }
+      };
 
       // Upload normal files via standard multipart
-      if (normalFiles.length > 0) {
+      const uploadNormalFiles = async () => {
+        if (normalFiles.length === 0) return;
         const fd = new FormData();
         // Unique field names: Django request.FILES.items() exposes one entry per key — duplicate
         // basenames in one batch would otherwise drop files. Original filename is preserved via
@@ -359,17 +368,16 @@ export const ImportPage = ({
         normalFiles.forEach((f, i) => {
           fd.append(`file_${i}`, f, f.name);
         });
-        return importFilesImmediately(normalFiles, fd);
-      }
-      if (largeFiles.length === 0) {
-        onWaiting?.(false);
-      }
+        await importFilesImmediately(normalFiles, fd);
+      };
+
+      await Promise.all([uploadLargeFiles(), uploadNormalFiles()]);
     },
-    [importFilesImmediately, project, loadFilesList, onWaiting, onError],
+    [importFilesImmediately, project, onError, onFinish],
   );
 
   const sendFiles = useCallback(
-    (fileList) => {
+    async (fileList) => {
       setError(null);
       const files = [...fileList];
 
@@ -381,7 +389,11 @@ export const ImportPage = ({
       }
 
       onWaiting?.(true);
-      performSendFiles(files);
+      try {
+        await performSendFiles(files);
+      } finally {
+        onWaiting?.(false);
+      }
     },
     [onError, onWaiting, performSendFiles],
   );
@@ -395,17 +407,57 @@ export const ImportPage = ({
     setError(null);
     setServerImportBusy(true);
     onWaiting?.(true);
-    const res = await api.callApi("importFromLocalPaths", {
-      params: { pk: project.id },
-      body: { items: [trimmed], recursive: serverRecursive },
-    });
-    if (res?.file_upload_ids) {
-      await onFinish(res);
-    } else {
+    try {
+      const res = await api.callApi("importFromLocalPaths", {
+        params: { pk: project.id },
+        body: { items: [trimmed], recursive: serverRecursive },
+      });
+      if (res?.file_upload_ids) {
+        await onFinish(res);
+      } else if (res?.error || res?.response) {
+        onError(res.response ?? res);
+      }
+    } catch (err) {
+      onError(err);
+    } finally {
       onWaiting?.(false);
+      setServerImportBusy(false);
     }
-    setServerImportBusy(false);
-  }, [api, onFinish, onWaiting, project.id, serverPath, serverRecursive]);
+  }, [api, onError, onFinish, onWaiting, project.id, serverPath, serverRecursive]);
+
+  const removeUploadedFile = useCallback(
+    async (fileId) => {
+      setError(null);
+      setRemovingFileIds((current) => new Set(current).add(fileId));
+      try {
+        const res = await api.callApi("deleteFileUploads", {
+          params: { pk: project.id },
+          body: { file_upload_ids: [fileId] },
+        });
+        if (res?.error || res?.response) {
+          onError(res.response ?? res);
+          return;
+        }
+        const remainingFiles = files.uploaded.filter((file) => file.id !== fileId);
+        dispatch({ removeId: fileId });
+        if (!remainingFiles.some(({ file }) => /\.[ct]sv$/i.test(file))) {
+          setCsvHandling(undefined);
+        }
+        if (remainingFiles.length === 0) {
+          resetColumns();
+        }
+      } catch (err) {
+        onError(err);
+      } finally {
+        setRemovingFileIds((current) => {
+          const next = new Set(current);
+          next.delete(fileId);
+          return next;
+        });
+      }
+    },
+    [api, files.uploaded, onError, project.id, resetColumns, setCsvHandling],
+  );
 
   const onUpload = useCallback(
     (e) => {
@@ -416,7 +468,7 @@ export const ImportPage = ({
   );
 
   const onLoadURL = useCallback(
-    (e) => {
+    async (e) => {
       e.preventDefault();
       setError(null);
       const url = urlRef.current?.value;
@@ -428,7 +480,11 @@ export const ImportPage = ({
       onWaiting?.(true);
       const body = new URLSearchParams({ url });
 
-      importFilesImmediately([{ name: url }], body);
+      try {
+        await importFilesImmediately([{ name: url }], body);
+      } finally {
+        onWaiting?.(false);
+      }
     },
     [importFilesImmediately],
   );
@@ -468,7 +524,15 @@ export const ImportPage = ({
   return (
     <div className={importClass}>
       {highlightCsvHandling && <div className={importClass.elem("csv-splash").toClassName()} />}
-      <input id="file-input" type="file" name="file" multiple onChange={onUpload} style={{ display: "none" }} />
+      <input
+        ref={fileInputRef}
+        id="file-input"
+        type="file"
+        name="file"
+        multiple
+        onChange={onUpload}
+        style={{ display: "none" }}
+      />
 
       <header className="flex gap-4">
         <form
@@ -486,7 +550,7 @@ export const ImportPage = ({
           variant="primary"
           look="outlined"
           type="button"
-          onClick={() => document.getElementById("file-input").click()}
+          onClick={() => fileInputRef.current?.click()}
           leading={<IconUpload />}
           aria-label="Upload file"
         >
@@ -664,6 +728,18 @@ export const ImportPage = ({
                                 {file.size ? formatFileSize(file.size) : ""}
                               </Typography>
                             </td>
+                            <td>
+                              <Button
+                                size="smaller"
+                                variant="negative"
+                                look="string"
+                                waiting={removingFileIds.has(file.id)}
+                                onClick={() => removeUploadedFile(file.id)}
+                                aria-label={`Remove ${file.file}`}
+                              >
+                                <IconTrash className="w-4 h-4" />
+                              </Button>
+                            </td>
                           </tr>
                         );
                       })}
@@ -674,7 +750,7 @@ export const ImportPage = ({
                           FILENAME_TRUNCATE_END,
                           "...",
                         );
-                        const progress = uploadProgress[file.name];
+                        const progress = uploadProgress.get(file);
                         return (
                           <tr key={`${idx}-${file.name}`}>
                             <td className={importClass.elem("file-name").toClassName()}>

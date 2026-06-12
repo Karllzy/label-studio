@@ -10,6 +10,10 @@ param(
     [string]$Sam3CheckpointPath,
     [string]$AppPythonExe,
     [string]$Sam3RequirementsPath,
+    [ValidateSet('cu126', 'cu128', 'cu130')]
+    [string]$Sam3GpuTorchPlatform = 'cu126',
+    [string]$Sam3CpuTorchIndexUrl,
+    [string]$Sam3GpuTorchIndexUrl,
     [switch]$Force
 )
 
@@ -20,6 +24,12 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $Sam3RequirementsPath) {
     $Sam3RequirementsPath = Join-Path $PSScriptRoot 'sam3.requirements.txt'
+}
+if (-not $Sam3CpuTorchIndexUrl) {
+    $Sam3CpuTorchIndexUrl = 'https://download.pytorch.org/whl/cpu'
+}
+if (-not $Sam3GpuTorchIndexUrl) {
+    $Sam3GpuTorchIndexUrl = "https://download.pytorch.org/whl/$Sam3GpuTorchPlatform"
 }
 
 $RepoRoot = Resolve-RepoRoot -ScriptPath $PSScriptRoot
@@ -46,6 +56,8 @@ $bundleDirs = @(
     (Join-Path $BundleOutputDir 'installers'),
     (Join-Path $BundleOutputDir 'wheels\app'),
     (Join-Path $BundleOutputDir 'wheels\sam3'),
+    (Join-Path $BundleOutputDir 'wheels\sam3\cpu'),
+    (Join-Path $BundleOutputDir 'wheels\sam3\gpu'),
     (Join-Path $BundleOutputDir 'packages\label_studio_app'),
     (Join-Path $BundleOutputDir 'packages\sam3_local_backend'),
     (Join-Path $BundleOutputDir 'packages\sam3_source'),
@@ -118,7 +130,18 @@ foreach ($dep in $directUrlDeps) {
 Write-Utf8NoBom -Path $appRequirementsPath -Lines $appRequirementLines
 
 $sam3OfflineRequirementsPath = Join-Path $BundleOutputDir 'requirements\sam3-offline.txt'
-Copy-Item -LiteralPath $Sam3RequirementsPath -Destination $sam3OfflineRequirementsPath -Force
+$sam3RequirementLines = Get-Content -LiteralPath $Sam3RequirementsPath
+$sam3NonTorchRequirements = @(
+    $sam3RequirementLines | Where-Object {
+        $trimmed = $_.Trim()
+        if (-not $trimmed) { return $false }
+        if ($trimmed.StartsWith('#')) { return $true }
+        return -not ($trimmed -match '^(torch|torchvision)([<>=!~ ].*)?$')
+    }
+)
+$sam3NonTorchRequirementsPath = Join-Path $tempRoot 'sam3-non-torch.requirements.txt'
+[System.IO.File]::WriteAllLines($sam3NonTorchRequirementsPath, $sam3NonTorchRequirements, (New-Object System.Text.UTF8Encoding($false)))
+[System.IO.File]::WriteAllLines($sam3OfflineRequirementsPath, $sam3NonTorchRequirements, (New-Object System.Text.UTF8Encoding($false)))
 
 $bootstrapPackages = @('pip', 'setuptools', 'wheel', 'build')
 
@@ -148,8 +171,20 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Failed to download bootstrap packages for SAM3 environment.'
 }
 
+Write-Host "Downloading CPU PyTorch wheels for SAM3 environment from $Sam3CpuTorchIndexUrl..."
+& $AppPythonExe -m pip download --dest (Join-Path $BundleOutputDir 'wheels\sam3\cpu') --index-url $Sam3CpuTorchIndexUrl torch torchvision
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to download CPU torch/torchvision wheels from $Sam3CpuTorchIndexUrl."
+}
+
+Write-Host "Downloading GPU PyTorch wheels for SAM3 environment from $Sam3GpuTorchIndexUrl..."
+& $AppPythonExe -m pip download --dest (Join-Path $BundleOutputDir 'wheels\sam3\gpu') --index-url $Sam3GpuTorchIndexUrl torch torchvision
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to download GPU torch/torchvision wheels from $Sam3GpuTorchIndexUrl."
+}
+
 Write-Host 'Downloading SAM3 dependency wheels...'
-& $AppPythonExe -m pip download --dest (Join-Path $BundleOutputDir 'wheels\sam3') -r $sam3OfflineRequirementsPath
+& $AppPythonExe -m pip download --dest (Join-Path $BundleOutputDir 'wheels\sam3') -r $sam3NonTorchRequirementsPath
 if ($LASTEXITCODE -ne 0) {
     throw 'Failed to download SAM3 dependency wheels.'
 }
@@ -167,10 +202,13 @@ Copy-Item -LiteralPath $Sam3CheckpointPath -Destination (Join-Path $BundleOutput
 foreach ($artifact in @(
     'common.ps1',
     'install_offline_bundle.ps1',
+    'reset_default_admin.ps1',
     'start_label_studio.ps1',
     'start_sam3_backend.ps1',
     'start_all.ps1',
+    'start_local_stack.ps1',
     'healthcheck.ps1',
+    'post_install_selfcheck.ps1',
     'app.env.example',
     'sam3.env.example',
     'README_DEPLOY.md'
@@ -188,6 +226,9 @@ $manifest = [ordered]@{
     sam3_checkpoint = Split-Path -Leaf $Sam3CheckpointPath
     app_requirements = 'requirements/app-offline.txt'
     sam3_requirements = 'requirements/sam3-offline.txt'
+    sam3_cpu_torch_index_url = $Sam3CpuTorchIndexUrl
+    sam3_gpu_torch_platform = $Sam3GpuTorchPlatform
+    sam3_gpu_torch_index_url = $Sam3GpuTorchIndexUrl
 }
 $manifestJson = $manifest | ConvertTo-Json -Depth 4
 [System.IO.File]::WriteAllText((Join-Path $BundleOutputDir 'manifest.json'), $manifestJson, (New-Object System.Text.UTF8Encoding($false)))

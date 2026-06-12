@@ -39,11 +39,13 @@ export const importFiles = async ({
 
     if (res && !res.error) {
       await onFinish?.(res);
-    } else {
-      onError?.(res?.response);
+      return res;
     }
+    onError?.(res?.response);
+    return null;
   } catch (err) {
     onError?.(err);
+    return null;
   } finally {
     onUploadFinish?.(files);
   }
@@ -79,7 +81,7 @@ export const chunkedUploadFile = async ({
 
     if (!initRes || initRes.error) {
       onError?.(initRes?.response || "Failed to initialize upload");
-      return;
+      return null;
     }
 
     const uploadId = initRes.upload_id;
@@ -122,7 +124,7 @@ export const chunkedUploadFile = async ({
 
       if (!success) {
         onError?.(`Failed to upload chunk ${i + 1}/${totalChunks} after 3 retries`);
-        return;
+        return null;
       }
     }
 
@@ -133,12 +135,14 @@ export const chunkedUploadFile = async ({
     );
 
     if (completeRes && !completeRes.error) {
-      onFinish?.(completeRes);
-    } else {
-      onError?.(completeRes?.response || "Failed to complete upload");
+      await onFinish?.(completeRes);
+      return completeRes;
     }
+    onError?.(completeRes?.response || "Failed to complete upload");
+    return null;
   } catch (err) {
     onError?.(err);
+    return null;
   }
 };
 

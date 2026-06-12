@@ -1,5 +1,6 @@
 param(
-    [string]$InstallRoot = (Split-Path -Parent $PSScriptRoot)
+    [string]$InstallRoot = (Split-Path -Parent $PSScriptRoot),
+    [switch]$SkipRegressionSelfCheck
 )
 
 Set-StrictMode -Version Latest
@@ -22,3 +23,15 @@ $labelStudio = Invoke-WebRequest -Uri "http://127.0.0.1:$labelStudioPort/" -Time
 Write-Host "SAM3 status: $($sam3.status)"
 Write-Host "SAM3 model_version: $($sam3.model_version)"
 Write-Host "Label Studio HTTP status: $($labelStudio.StatusCode)"
+
+if (-not $SkipRegressionSelfCheck) {
+    $SelfCheckScript = Join-Path $PSScriptRoot 'post_install_selfcheck.ps1'
+    if (-not (Test-Path -LiteralPath $SelfCheckScript)) {
+        throw "Offline regression self-check script not found: $SelfCheckScript"
+    }
+
+    & powershell.exe -ExecutionPolicy Bypass -File $SelfCheckScript -InstallRoot $InstallRoot -BaseUrl "http://127.0.0.1:$labelStudioPort"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Offline regression self-check failed with exit code $LASTEXITCODE."
+    }
+}

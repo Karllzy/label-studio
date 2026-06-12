@@ -35,26 +35,30 @@ export const Inner = () => {
 
   const onCancel = useCallback(async () => {
     setWaitingStatus(true);
-    await api.callApi("deleteFileUploads", {
-      params: {
-        pk: project.id,
-      },
-      body: {
-        file_upload_ids: fileIds,
-      },
-    });
-    setWaitingStatus(false);
-    modal?.current?.hide();
-    backToDM();
-  }, [modal, project, fileIds, backToDM]);
+    try {
+      await api.callApi("deleteFileUploads", {
+        params: {
+          pk: project.id,
+        },
+        body: {
+          file_upload_ids: fileIds,
+        },
+      });
+      modal?.current?.hide();
+      backToDM();
+    } finally {
+      setWaitingStatus(false);
+    }
+  }, [api, project, fileIds, backToDM]);
 
   const onFinish = useCallback(async () => {
     if (sample) {
-      await uploadSample(
+      const sampleImported = await uploadSample(
         sample,
         () => setWaitingStatus(true),
         () => setWaitingStatus(false),
       );
+      if (!sampleImported) return;
     }
 
     const imported = await finishUpload();

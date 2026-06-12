@@ -3,6 +3,7 @@
 import json
 import logging
 import mimetypes
+import os
 import time
 from urllib.parse import unquote, urlparse
 
@@ -15,6 +16,7 @@ from core.utils.exceptions import extract_message
 from core.utils.params import bool_from_request, list_of_strings_from_request
 from csp.decorators import csp
 from django.conf import settings
+from django.core.files import File
 from django.core.files.storage import FileSystemStorage
 from django.db import transaction
 from django.http import HttpResponse
@@ -1052,8 +1054,24 @@ class ChunkedUploadInitAPI(APIView):
         total_size = request.data.get('total_size', 0)
         total_chunks = request.data.get('total_chunks', 1)
 
-        if not filename:
-            raise ValidationError('filename is required')
+        filename = ChunkedUpload.validate_filename(filename)
+        try:
+            total_size = int(total_size)
+            total_chunks = int(total_chunks)
+        except (TypeError, ValueError):
+            raise ValidationError('total_size and total_chunks must be integers')
+
+        if total_size <= 0:
+            raise ValidationError('total_size must be greater than zero')
+        if total_size >= settings.TASKS_MAX_FILE_SIZE:
+            raise ValidationError(
+                f'Maximum file size is {settings.TASKS_MAX_FILE_SIZE} bytes, current size is {total_size} bytes'
+            )
+        if total_chunks <= 0 or total_chunks > total_size:
+            raise ValidationError('total_chunks is invalid for the declared file size')
+        _, ext = os.path.splitext(filename)
+        if ext.lower() not in settings.SUPPORTED_EXTENSIONS:
+            raise ValidationError(f'{ext} extension is not supported')
 
         chunked = ChunkedUpload.objects.create(
             user=request.user,
@@ -1063,7 +1081,6 @@ class ChunkedUploadInitAPI(APIView):
             total_chunks=total_chunks,
         )
 
-        import os
         os.makedirs(chunked.chunk_dir, exist_ok=True)
 
         return Response({
@@ -1089,7 +1106,10 @@ class ChunkedUploadPartAPI(APIView):
 
     def post(self, request, *args, **kwargs):
         upload_id = request.data.get('upload_id')
-        chunk_index = int(request.data.get('chunk_index', 0))
+        try:
+            chunk_index = int(request.data.get('chunk_index'))
+        except (TypeError, ValueError):
+            raise ValidationError('chunk_index must be an integer')
         chunk_file = request.FILES.get('chunk')
 
         if not upload_id or chunk_file is None:
@@ -1105,15 +1125,29 @@ class ChunkedUploadPartAPI(APIView):
         except ChunkedUpload.DoesNotExist:
             raise ValidationError('Invalid upload_id or upload already completed')
 
+        if chunk_index < 0 or chunk_index >= chunked.total_chunks:
+            raise ValidationError(f'chunk_index must be between 0 and {chunked.total_chunks - 1}')
+
         chunk_path = chunked.get_chunk_path(chunk_index)
-        import os
         os.makedirs(os.path.dirname(chunk_path), exist_ok=True)
 
         with open(chunk_path, 'wb') as f:
             for part in chunk_file.chunks():
                 f.write(part)
 
-        chunked.uploaded_chunks = chunk_index + 1
+        uploaded_size = sum(
+            os.path.getsize(chunked.get_chunk_path(index))
+            for index in chunked.uploaded_chunk_indexes()
+        )
+        if uploaded_size > chunked.total_size:
+            os.remove(chunk_path)
+            chunked.uploaded_chunks = len(chunked.uploaded_chunk_indexes())
+            chunked.save(update_fields=['uploaded_chunks', 'updated_at'])
+            raise ValidationError(
+                f'Uploaded chunks exceed declared size: {uploaded_size}/{chunked.total_size} bytes'
+            )
+
+        chunked.uploaded_chunks = len(chunked.uploaded_chunk_indexes())
         chunked.save(update_fields=['uploaded_chunks', 'updated_at'])
 
         return Response({
@@ -1155,35 +1189,29 @@ class ChunkedUploadCompleteAPI(APIView):
         except ChunkedUpload.DoesNotExist:
             raise ValidationError('Invalid upload_id or upload already completed')
 
-        if chunked.uploaded_chunks < chunked.total_chunks:
+        uploaded_indexes = chunked.uploaded_chunk_indexes()
+        expected_indexes = set(range(chunked.total_chunks))
+        if uploaded_indexes != expected_indexes:
             raise ValidationError(
-                f'Not all chunks uploaded: {chunked.uploaded_chunks}/{chunked.total_chunks}'
+                f'Not all chunks uploaded: {len(uploaded_indexes)}/{chunked.total_chunks}'
             )
 
+        file_upload = None
+        merged_path = None
         try:
-            merged_path = chunked.merge_chunks()
-
-            from django.core.files.uploadedfile import SimpleUploadedFile
-            import os
-
-            with open(merged_path, 'rb') as f:
-                uploaded_file = SimpleUploadedFile(
-                    name=chunked.filename,
-                    content=f.read(),
-                    content_type='application/octet-stream',
+            actual_size = sum(os.path.getsize(chunked.get_chunk_path(i)) for i in range(chunked.total_chunks))
+            if actual_size != chunked.total_size:
+                raise ValidationError(
+                    f'Uploaded size does not match declared size: {actual_size}/{chunked.total_size} bytes'
                 )
 
-            file_upload = FileUpload.objects.create(
-                user=request.user,
-                project_id=kwargs['pk'],
-                file=uploaded_file,
-            )
-
-            chunked.status = ChunkedUpload.Status.COMPLETED
-            chunked.save(update_fields=['status', 'updated_at'])
-
-            os.remove(merged_path)
-            chunked.cleanup()
+            merged_path = chunked.merge_chunks()
+            with open(merged_path, 'rb') as f:
+                file_upload = FileUpload.objects.create(
+                    user=request.user,
+                    project_id=kwargs['pk'],
+                    file=File(f, name=chunked.filename),
+                )
 
             result = {
                 'upload_id': str(chunked.upload_id),
@@ -1192,19 +1220,72 @@ class ChunkedUploadCompleteAPI(APIView):
                 'status': 'completed',
             }
 
-            if commit_to_project:
-                project = generics.get_object_or_404(
-                    Project.objects.for_user(request.user), pk=kwargs['pk']
-                )
-                tasks, found_formats, data_columns = FileUpload.load_tasks_from_uploaded_files(
+            project = generics.get_object_or_404(Project.objects.for_user(request.user), pk=kwargs['pk'])
+            try:
+                parsed_tasks, found_formats, data_columns = FileUpload.load_tasks_from_uploaded_files(
                     project, file_upload_ids=[file_upload.id]
                 )
-                result['task_count'] = len(tasks)
-                result['data_columns'] = data_columns
+            finally:
+                file_upload.file.close()
+            result.update(
+                {
+                    'task_count': len(parsed_tasks),
+                    'annotation_count': None,
+                    'prediction_count': None,
+                    'file_upload_ids': [file_upload.id],
+                    'could_be_tasks_list': file_upload.format_could_be_tasks_list,
+                    'found_formats': found_formats,
+                    'data_columns': data_columns,
+                }
+            )
 
+            if bool_from_request({'commit_to_project': commit_to_project}, 'commit_to_project', True):
+                with transaction.atomic():
+                    serializer = ImportApiSerializer(
+                        data=parsed_tasks,
+                        many=True,
+                        context={'project': project, 'user': request.user},
+                    )
+                    serializer.is_valid(raise_exception=True)
+                    tasks = serializer.save(project_id=project.id)
+                    result.update(
+                        {
+                            'task_count': len(tasks),
+                            'annotation_count': len(serializer.db_annotations),
+                            'prediction_count': len(serializer.db_predictions),
+                        }
+                    )
+                    project.update_tasks_counters_and_task_states(
+                        tasks_queryset=tasks,
+                        maximum_annotations_changed=False,
+                        overlap_cohort_percentage_changed=False,
+                        tasks_number_changed=True,
+                        recalculate_stats_counts={
+                            'task_count': result['task_count'],
+                            'annotation_count': result['annotation_count'],
+                            'prediction_count': result['prediction_count'],
+                        },
+                    )
+                    project.summary.update_data_columns(parsed_tasks)
+                    emit_webhooks_for_instance(
+                        request.user.active_organization, project, WebhookAction.TASKS_CREATED, tasks
+                    )
+
+            chunked.status = ChunkedUpload.Status.COMPLETED
+            chunked.save(update_fields=['status', 'updated_at'])
+            try:
+                os.remove(merged_path)
+                chunked.cleanup()
+            except OSError:
+                logger.warning('Failed to clean chunked upload temporary files: %s', chunked.upload_id, exc_info=True)
             return Response(result, status=status.HTTP_201_CREATED)
 
         except Exception as e:
+            if file_upload is not None:
+                file_upload.delete()
+            if merged_path and os.path.exists(merged_path):
+                os.remove(merged_path)
+            chunked.cleanup()
             chunked.status = ChunkedUpload.Status.FAILED
             chunked.save(update_fields=['status', 'updated_at'])
             raise ValidationError(f'Failed to complete chunked upload: {str(e)}')

@@ -94,11 +94,14 @@ def custom_exception_handler(exc, context):
         # Skipping Sentry for non-500 unhandled exceptions
         sentry_skip = True
 
-    logger.error(
-        '{} {}'.format(exception_id, exc),
-        exc_info=True,
-        extra={'sentry_skip': sentry_skip, 'exception_id': exception_id},
-    )
+    log_extra = {'sentry_skip': sentry_skip, 'exception_id': exception_id}
+    log_message = '{} {}'.format(exception_id, exc)
+
+    if sentry_skip:
+        # 4xx API exceptions are expected validation/client errors, so avoid noisy tracebacks.
+        logger.warning(log_message, extra=log_extra)
+    else:
+        logger.error(log_message, exc_info=True, extra=log_extra)
 
     exc = _override_exceptions(exc)
 

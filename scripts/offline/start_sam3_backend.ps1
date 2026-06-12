@@ -1,6 +1,7 @@
 param(
     [string]$InstallRoot = (Split-Path -Parent $PSScriptRoot),
-    [string]$EnvFile
+    [string]$EnvFile,
+    [int]$Port = 9090
 )
 
 Set-StrictMode -Version Latest
@@ -25,9 +26,7 @@ if (-not $env:SAM3_REPO_DIR) {
 if (-not $env:SAM3_CHECKPOINT_PATH) {
     $env:SAM3_CHECKPOINT_PATH = Join-Path $InstallRoot 'models\sam3.1_multiplex.pt'
 }
-if (-not $env:SAM3_ML_PORT) {
-    $env:SAM3_ML_PORT = '9090'
-}
+$env:SAM3_ML_PORT = "$Port"
 if (-not $env:LABEL_STUDIO_BASE_DATA_DIR) {
     $env:LABEL_STUDIO_BASE_DATA_DIR = Join-Path $InstallRoot 'data\label-studio'
 }

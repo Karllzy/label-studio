@@ -138,30 +138,42 @@ export const CreateProject = ({ onClose }) => {
   );
 
   const onCreate = React.useCallback(async () => {
-    // First, persist project with label_config so import/reimport validates against it
-    const response = await api.callApi("updateProject", {
-      params: {
-        pk: project.id,
-      },
-      body: { ...projectBody, is_draft: false },
-    });
-
-    if (response === null) return;
-
-    const imported = await finishUpload();
-
-    if (!imported) return;
-
     setWaitingStatus(true);
+    try {
+      // Persist the config while the project is still a draft so import validation uses it.
+      const draftResponse = await api.callApi("updateProject", {
+        params: {
+          pk: project.id,
+        },
+        body: projectBody,
+      });
 
-    if (sample) await uploadSample(sample);
+      if (draftResponse === null) return;
 
-    __lsa("create_project.create", { sample: sample?.url });
+      const imported = await finishUpload();
 
-    setWaitingStatus(false);
+      if (!imported) return;
 
-    history.push(`/projects/${response.id}/data`);
-  }, [project, projectBody, finishUpload]);
+      if (sample) {
+        const sampleImported = await uploadSample(sample);
+        if (!sampleImported) return;
+      }
+
+      const response = await api.callApi("updateProject", {
+        params: {
+          pk: project.id,
+        },
+        body: { ...projectBody, is_draft: false },
+      });
+
+      if (response === null) return;
+
+      __lsa("create_project.create", { sample: sample?.url });
+      history.push(`/projects/${response.id}/data`);
+    } finally {
+      setWaitingStatus(false);
+    }
+  }, [api, finishUpload, history, project, projectBody, sample, uploadSample]);
 
   const onSaveName = async () => {
     if (error) return;
